@@ -1,0 +1,609 @@
+# -*- coding: utf-8 -*-
+import os
+from dotenv import load_dotenv
+load_dotenv()
+import json
+import re
+import time
+import uuid
+import threading
+import asyncio
+import requests
+import sounddevice as sd
+import soundfile as sf
+from pathlib import Path
+
+# --- الإعدادات الأساسية ---
+APP_DIR = Path(__file__).parent
+MEMORY_FILE = APP_DIR / "memory_groq.json"
+RULES_FILE = APP_DIR / "rules_groq.json"
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+MODEL = "openai/gpt-oss-120b"
+
+# Provider Config
+PROVIDER = "gemini"  # "groq" or "gemini"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+# End Provider Config
+
+# --- إدارة الذاكرة ---
+def load_json(path, default):
+    if not path.exists():
+        return default
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+memory = load_json(MEMORY_FILE, {"facts": {}, "events": []})
+rules = load_json(RULES_FILE, {"rules": []})
+
+# --- محرك الصوت (TTS) ---
+
+def _normalize_for_tts(text: str) -> str:
+    replacements = {
+        'مواعيد': 'مَوَاعِيد',
+        'حابب': 'حَابِب',
+        'حاب': 'حَاب',
+        'أدويتك': 'أَدْوِيَتَك',
+        'أدوية': 'أَدْوِيَة',
+        'بدك': 'بِدَّك',
+        'فيّني': 'فِينِّي',
+        'بتستعمل': 'بِتِسْتَعْمِل',
+        'بستعمل': 'بِسْتَعْمِل',
+        'خبرني': 'خَبِّرْنِي',
+        'تذكير': 'تَذْكِير',
+        'مساعدة': 'مُسَاعَدَة',
+        'إضافية': 'إِضَافِيَّة',
+        'أسبرين': 'أَسْبِرِين',
+        'القلب': 'القَلْب',
+        "شو": "شُو",
+        "بتحب": "بِتْحِب",
+        "اليوم": "اليَوْم",
+        "هلا": "هَلَا",
+        "وسهلا": "وَسَهْلًا",
+        "رفيق": "رَفِيق",
+        "مساعده": "مُسَاعِدُه",
+        "أساعدك": "أُسَاعِدَك",
+        "تنظيم": "تَنْظِيم",
+        "دردشة": "دَرْدَشَة",
+        "بتحبش": "بِتْحِبِّش",
+        "بلال": "بِلَال",
+        "عون": "عَوْن",
+        "قهوتك": "قَهْوَتَك",
+        "صديقي": "صَدِيقِي",
+        "رفيقي": "رَفِيقِي",
+        "صاحبي": "صَاحِبِي",
+        "الغالي": "الغَالِي",
+        "تاريخ": "تَارِيخ",
+        "الميلاد": "المِيلَاد",
+        "أسبرين": "أَسْبِرِين",
+        "القلب": "القَلْب",
+        "طبيب": "طَبِيب",
+        "الله": "اللّٰه",
+        "أهلاً": "أَهْلًا",
+        "أهلا": "أَهْلًا",
+        "أهلين": "أَهْلَيْن",
+        "حلقة": "حَلْقَتْ",
+        "ديوفان": "دِيفَان",
+        "يومي": "يَوْمِي",
+        "المستخدم": "المُسْتَخْدِم",
+        "أنت": "أَنْت",
+        "أنا": "أَنَا",
+        "كيف": "كَيْف",
+        "كيفك": "كَيْفَك",
+        "منيح": "مْنِيح",
+        "منيحة": "مْنِيحَة",
+        "تمام": "تَمَام",
+    }
+    for src, dst in replacements.items():
+        text = text.replace(src, dst)
+    return text
+
+
+def _clean_text_for_tts(text: str) -> str:
+    """يزيل رموز Markdown والرموز الغريبة قبل إرسال النص للصوت."""
+    # إزالة النجوم، المربعات، الأقواس، الشرطات، العلامات
+    text = re.sub(r'[*_#`~<>\[\]{}|]', '', text)
+    # إزالة المسافات المتعددة
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+def speak(text_to_speak, voice_name="ar-JO-TaimNeural"):
+    print(f"\n[SPEAK STEP 1] Function entered, text len={len(text_to_speak)}")
+    print("\n>>> SPEAK FUNCTION CALLED <<<\n")
+    if not text_to_speak or not text_to_speak.strip():
+        return
+    def _worker():
+        try:
+            text = text_to_speak
+            import edge_tts
+            is_english = sum(1 for c in text if c.isascii() and c.isalpha()) > (len(text) / 2)
+            if is_english:
+                voice = "en-US-AndrewNeural"
+            else:
+                voice = voice_name
+            text_morphed = _normalize_for_tts(text) if not is_english else text
+
+            # تنظيف النص من رموز Markdown قبل التشكيل
+            text = _clean_text_for_tts(text)
+
+            # استخدام النموذج الذكي لتشكيل النص العربي تلقائياً
+            if not is_english:
+                try:
+                    morph_prompt = f"أعد كتابة هذا النص العربي مع إضافة التشكيل الكامل (الحركات) لضمان النطق الصحيح، وأعد النص فقط بدون أي شرح: {text}"
+                    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+                    payload = {"model": MODEL, "messages": [{"role": "user", "content": morph_prompt}], "temperature": 0.0}
+                    r = requests.post(GROQ_URL, headers=headers, json=payload, timeout=10)
+                    if r.ok:
+                        text = r.json()["choices"][0]["message"]["content"].strip()
+                except Exception:
+                    pass
+            text_morphed = text
+
+            async def _gen():
+                communicate = edge_tts.Communicate(text_morphed, voice)
+                path = str(APP_DIR / f".voice_{uuid.uuid4().hex}.mp3")
+                await communicate.save(path)  # ننتظر حتى يكتمل الملف
+                return path
+
+            path = asyncio.run(_gen())
+            
+            # تشغيل الملف كاملاً بعد اكتماله
+            print(f"[SPEAK STEP 4] About to play: {path}")
+            from playsound import playsound
+            print(f"[SPEAK STEP 5] playsound imported, playing...")
+            playsound(path, block=True)
+            print("[SPEAK STEP 6] played successfully!")
+            
+        except Exception as e:
+            import traceback
+            print(f"[SPEAK ERROR] {e}")
+            traceback.print_exc()
+    threading.Thread(target=_worker, daemon=True).start()
+
+# --- محرك التسجيل (STT) ---
+def record_and_transcribe():
+    print("\n🎤 (جاري التسجيل 5 ثوانٍ... تكلم الآن)")
+    samplerate = 16000
+    recording = sd.rec(int(5 * samplerate), samplerate=samplerate, channels=1, dtype="int16")
+    sd.wait()
+    audio_path = str(APP_DIR / ".stt_temp.wav")
+    sf.write(audio_path, recording, samplerate)
+    
+    print("⏳ (جاري التحويل إلى نص...)")
+    try:
+        from faster_whisper import WhisperModel
+        model = WhisperModel("small", device="cpu", compute_type="int8")
+        segments, _ = model.transcribe(audio_path, beam_size=5, vad_filter=True)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        os.remove(audio_path)
+        return text
+    except Exception as e:
+        print(f"[خطأ في التسجيل: {e}]")
+        return ""
+
+# --- الاتصال بالسحابة (Groq) ---
+
+def record_and_transcribe_from_file(file_path):
+    """يستقبل مسار ملف صوتي ويفرغه إلى نص باستخدام Groq Whisper (سريع ودقيق)."""
+    try:
+        import requests
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+        url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        
+        with open(file_path, "rb") as f:
+            files = {"file": (Path(file_path).name, f)}
+            data = {"model": "whisper-large-v3-turbo", "language": "ar", "response_format": "json"}
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=20)
+            
+        if response.status_code == 200:
+            return response.json().get("text", "").strip()
+        else:
+            return ""
+    except Exception as e:
+        print(f"[خطأ في الصوت: {e}]")
+        return ""
+
+def call_gemini(messages, temperature=0.3, json_mode=False):
+    try:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                parts.append("[SYSTEM] " + content)
+            elif role == "assistant":
+                parts.append("[AWN] " + content)
+            else:
+                parts.append("[USER] " + content)
+        full = "\n\n".join(parts)
+        if json_mode:
+            full += "\n\nReturn ONLY valid JSON, no extra text."
+        resp = client.models.generate_content(model=GEMINI_MODEL, contents=full)
+        return resp.text.strip()
+    except Exception as e:
+        return "[Gemini error: " + str(e) + "]"
+
+
+def call_groq(messages, temperature=0.3, json_mode=False):
+    if PROVIDER == "gemini":
+        return call_gemini(messages, temperature, json_mode)
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "temperature": temperature
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+        
+    import time
+    for attempt in range(2): # محاولتان
+        try:
+            r = requests.post(GROQ_URL, headers=headers, json=payload, timeout=30)
+            if r.status_code == 429:
+                if attempt == 0:
+                    time.sleep(3) # انتظار 3 ثوانٍ ثم إعادة المحاولة
+                    continue
+                else:
+                    return "يا رفيقي، في شوية ضغط على الاتصال. استناني دقيقة صغيرة ورجع اسألني."
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            if attempt == 1:
+                return f"[خطأ في الاتصال: {e}]"
+
+# --- بناء تعليمات النظام (System Prompt) ---
+def build_system_prompt():
+    # تحويل الذاكرة إلى نص مختصر جداً لتوفير التوكنز
+    facts = memory.get("facts", {})
+    short_memory = "\n".join([f"{k}: {v}" for k, v in facts.items()])
+    memory_str = short_memory if short_memory else "لا توجد معلومات"
+    rules_str = json.dumps(rules, ensure_ascii=False)
+    return f"""أنت "عون"، رفيق بلال الشخصي ومساعده. تتحدث بأسلوب إنساني، دافئ، وعفوي جداً (لهجة أردنية خفيفة). إذا سُئلت "من أنت؟" أجب حرفياً: "أنا عون، رفيقك الشخصي ومساعدك." ولا تضف أي كلمة أخرى.
+قواعدك الصارمة:
+- التصرف الإنساني: لا تشرح آلية عملك الداخلية أبداً، ولا تذكر كلمات مثل "برمجة"، "نظام"، أو "كود". تصرف كإنسان طبيعي في كل الأجوبة. إذا طُلب منك حفظ شيء، رد بجملة قصيرة (مثل: تمام، سجلتها) أو اعتذر بلطف دون كشف السبب البرمجي.
+- الفصل التام: أنت "عون" المساعد الشخصي لبلال. "حلقة وصل" هو مجرد مشروع مستقل لبلال، لا تتقمص شخصية "حلقة وصل" أبداً ولا تتحدث وكأنك هو.
+
+0. الهوية: إذا سُئلت "مين أنا" أو "من أنا" أو "شو اسمي"، أجب باسم المستخدم فقط (بلال) ولا تذكر العمر أو أي معلومة أخرى.
+1. اللغة: أجب بنفس لغة المستخدم (عربي للعربي، إنجليزي للإنجليزي).
+2. الأسلوب: لا تكرر اسم "بلال" في كل جملة. لا تشكر المستخدم على "مشاركة المعلومات". أجب بشكل طبيعي جداً.
+3. الصدق: إذا لم تكن المعلومة في ذاكرتك، قل "ما بعرف" ولا تخترع أبداً.
+5. التنويع في النداء: نوّع في مناداة المستخدم (مرة "بلال"، مرة "يا صديقي"، مرة "يا رفيقي"، مرة "يا غالي"، مرة "يا صاحبي"، وأحياناً بدون مناداة إطلاقاً). يُمنع تكرار نفس النداء في كل جملة.
+4. الذاكرة: إليك ما تعرفه عن بلال (استخدمه للإجابة دون ذكر كلمة "ذاكرة"):
+{memory_str}
+5. التاريخ والعمر: إذا سُئلت عن العمر، استخدم تاريخ الميلاد لحسابه إذا لزم الأمر. وإذا ذكر المستخدم تاريخ ميلاده، احفظه فوراً.
+6. المعلومات المباشرة: أجب عن الأسئلة الشخصية (العمر، الأدوية) مباشرة وبثقة، دون قول "حسب معلوماتي" أو "حسب الذاكرة".
+7. الصدق في الموقع: إذا لم تكن تعرف موقع المستخدم، قل "ما بعرف موقعك" ولا تخترع إجابة أو تنسب موقعك لنفسك.
+8. الأسلوب: لا تقل "تم حفظ المعلومات" أو "لتسهيل المتابعة". أجب بشكل طبيعي جداً وكأنك صديق، أو اكتفِ بجملة قصيرة.
+9.5. الاسترجاع الشامل: إذا سُئلت عن تفضيلاتي (ماذا أحب أن أشرب، آكل، ألوان، إلخ)، استرجع كل ما تعرفه من الذاكرة تحت هذا البند واذكره بأسلوب طبيعي شامل، ولا تكتفِ بمعلومة واحدة.
+6. القواعد السلوكية التي تعلمتها (التزم بها حرفياً):
+{rules_str}
+"""
+
+# --- الاستخراج الذكي في الخلفية (Background Extraction) ---
+def _clean_fact_text(fact):
+    if not fact:
+        return ""
+    prefixes = sorted([
+        "احفظ هذه المعلومة", "احفظ هاي المعلومة", "احفظ المعلومة",
+        "احفظ في ذاكرتك", "احفظ في الذاكرة",
+        "احفظ هذه", "احفظ هاي",
+        "احفظها", "احفظه",
+        "تذكر أن", "تذكر ان",
+        "خلي بالك من",
+        "احفظي", "احفظوا",
+        "احفظ", "تذكر", "سجل", "خلي بالك",
+    ], key=len, reverse=True)
+    fact = fact.strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in prefixes:
+            if fact.startswith(prefix):
+                fact = fact[len(prefix):].strip(" :،.-")
+                changed = True
+    return fact.strip()
+
+
+def smart_extract(user_text, ai_reply):
+    if not any(cue in user_text for cue in ["احفظ", "تذكر", "سجل", "خلي بالك"]):
+        return
+
+    """يستخرج الحقائق والقواعد في الخلفية ويحفظها تلقائياً."""
+    prompt = f"""حلل هذه المحادثة واستخرج أي معلومة شخصية أو قاعدة سلوكية يجب تذكرها.
+رسالة المستخدم: "{user_text}"
+ردك: "{ai_reply}"
+
+أعد النتيجة بتنسيق JSON فقط يحتوي على:
+- "topic": كلمة إنجليزية واحدة قصيرة تصف موضوع المعلومة (مثل: "blood_pressure_medication", "hemorrhoids_medication", "age", "birthdate", "new_medication"). وإلا null.
+- "fact": المعلومة الشخصية بصيغة الغائب (مثال: "بلال يتناول ديوفان 160 للضغط" أو "تاريخ ميلاد بلال هو 31 يوليو 1975"). وإلا null.
+- "rule": القاعدة السلوكية. وإلا null.
+"""
+    try:
+        res = call_groq([{"role": "user", "content": prompt}], temperature=0.0, json_mode=True)
+        res = res.replace("```json", "").replace("```", "").strip()
+        data = json.loads(res)
+        
+        if data.get("fact"):
+            _raw_topic = str(data.get("topic") or "").strip()
+            if _raw_topic.lower() in ("", "null", "none"):
+                _raw_topic = ""
+            topic = re.sub(r'[^a-zA-Z0-9_]', '', _raw_topic)
+            _cleaned_fact = _clean_fact_text(data["fact"].strip())
+            if not _cleaned_fact:
+                _cleaned_fact = data["fact"].strip()
+            if not topic or topic.isdigit():
+                import hashlib as _hashlib
+                topic = "user_" + _hashlib.md5(_cleaned_fact.encode("utf-8")).hexdigest()[:10]
+            if topic:
+                new_fact = _cleaned_fact
+                
+                # فحص التكرار: البحث عن تشابه 80%
+                is_duplicate = False
+                for existing_key, existing_val in list(memory["facts"].items()):
+                    existing = str(existing_val).strip()
+                    words_new = set(new_fact.lower().split())
+                    words_old = set(existing.lower().split())
+                    if len(words_new & words_old) / max(len(words_new), 1) > 0.8:
+                        # تحديث المعلومة القديمة
+                        memory["facts"][existing_key] = new_fact
+                        save_json(MEMORY_FILE, memory)
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
+                    key = f"fact_{topic}"
+                    memory["facts"][key] = new_fact
+                    save_json(MEMORY_FILE, memory)
+            # print(f" [تم الحفظ في الخلفية: {data['fact']}]")
+            
+        if data.get("rule"):
+            if data["rule"] not in rules["rules"]:
+                rules["rules"].append(data["rule"])
+                save_json(RULES_FILE, rules)
+            # print(f" [تم حفظ القاعدة في الخلفية: {data['rule']}]")
+    except Exception:
+        pass # نتجاهل أخطاء الخلفية بصمت لعدم إزعاج المستخدم
+
+# --- الحلقة الرئيسية ---
+
+
+def _add_event(memory, raw):
+    events = memory.get("events", [])
+    if not isinstance(events, list):
+        events = []
+    raw_clean = raw.strip()
+    if len(raw_clean) < 3:
+        return "الموعد قصير جداً؛ ما حفظته."
+    new_key = raw_clean.lower()
+    for event in events:
+        if isinstance(event, dict):
+            existing_desc = str(event.get("description", "")).strip().lower()
+            if existing_desc == new_key:
+                return "هذا الموعد محفوظ عندي بالفعل، ولم أضف نسخة مكررة."
+    events.append({"description": raw_clean, "date": ""})
+    memory["events"] = events
+    save_json(MEMORY_FILE, memory)
+    return "تمام، سجلت الموعد: " + raw_clean
+
+def _list_events(memory):
+    events = memory.get("events", [])
+    if not isinstance(events, list) or not events:
+        return "ما عندك مواعيد مسجلة لحد الآن."
+    lines = ["مواعيدك:"]
+    for ev in events[-10:]:
+        if isinstance(ev, dict):
+            desc = str(ev.get("description", "")).strip()
+            date = str(ev.get("date", "")).strip()
+            if desc:
+                lines.append("- " + desc + (f" ({date})" if date else ""))
+    return "\n".join(lines) if len(lines) > 1 else "ما عندك مواعيد مسجلة لحد الآن."
+
+def _add_decision(memory, raw):
+    decisions = memory.get("decisions", [])
+    if not isinstance(decisions, list):
+        decisions = []
+    raw_clean = raw.strip()
+    if len(raw_clean) < 3:
+        return "القرار قصير جداً؛ ما حفظته."
+    if raw_clean not in decisions:
+        decisions.append(raw_clean)
+        memory["decisions"] = decisions
+        save_json(MEMORY_FILE, memory)
+        return "تمام، سجلت قرارك: " + raw_clean
+    return "هذا القرار محفوظ عندي بالفعل."
+
+def _list_decisions(memory):
+    decisions = memory.get("decisions", [])
+    if not isinstance(decisions, list) or not decisions:
+        return "ما عندك قرارات مسجلة لحد الآن."
+    lines = ["قراراتك:"]
+    for d in decisions[-10:]:
+        if isinstance(d, str) and d.strip():
+            lines.append("- " + d.strip())
+    return "\n".join(lines) if len(lines) > 1 else "ما عندك قرارات مسجلة لحد الآن."
+
+
+def _update_rules_from_message(text):
+    """تكتشف التلقين الفوري وتحفظه."""
+    n = text.strip()
+    cues = ["تذكر قاعدة", "تذكر قاعده", "من الآن فصاعدا", "من الان فصاعدا"]
+    if any(c in n for c in cues):
+        parts = n.split(":", 1)
+        if len(parts) > 1:
+            rule_text = parts[1].strip(" -،.")
+        else:
+            rule_text = n
+            for c in cues:
+                rule_text = rule_text.replace(c, "")
+            rule_text = rule_text.strip(" -،.:")
+            
+        if len(rule_text) < 5:
+            return "القاعدة قصيرة جداً، لم أحفظها."
+            
+        if rule_text not in rules["rules"]:
+            rules["rules"].append(rule_text)
+            save_json(RULES_FILE, rules)
+            return f"تم الحفظ! سجلت هذه القاعدة السلوكية وسأطبقها من الآن فصاعداً:\n«{rule_text}»"
+        return "هذه القاعدة محفوظة مسبقاً."
+    return None
+
+
+
+def normalize_arabic(text: str) -> str:
+    text = text.lower().strip()
+    text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ى", "ي").replace("ة", "ه")
+    import re
+    text = re.sub(r"[^\w\sء]", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip()
+
+def load_ring_memory():
+    ring_file = APP_DIR / "ring_memory.json"
+    if not ring_file.exists():
+        return {}, "ملف ذاكرة حلقة وصل غير موجود"
+    try:
+        with open(ring_file, "r", encoding="utf-8") as f:
+            return json.load(f), None
+    except Exception as e:
+        return {}, str(e)
+
+def answer_from_ring_memory(text):
+    ring, error = load_ring_memory()
+    if error or not isinstance(ring, dict):
+        return None
+
+    n = normalize_arabic(text)
+    if not any(p in n for p in ("حلقه وصل", "المشروع", "التطبيق")):
+        return None
+
+    if any(p in n for p in (
+        "اخر شي", "آخر شي", "اخر معلومه", "آخر معلومة",
+        "الملاحظات", "ملاحظات", "اخر ملاحظه", "آخر ملاحظة",
+        "شو جديد", "شو الجديد", "اخر تحديث", "آخر تحديث",
+        "latest note", "recent notes", "what's new",
+    )):
+        notes = ring.get("notes", [])
+        if isinstance(notes, list) and notes:
+            lines = ["آخر الملاحظات المحفوظة عن حلقة وصل:"]
+            for note in notes[-5:]:
+                if isinstance(note, str) and note.strip():
+                    lines.append("- " + note.strip())
+            return "\n".join(lines)
+        return "ما في ملاحظات محفوظة عن حلقة وصل لحد الآن."
+
+    if any(p in n for p in (
+        "شو حلقه وصل", "ما هي حلقه وصل", "شو هو حلقه وصل",
+        "عن حلقه وصل", "عرفني بحلقه وصل", "احكي لي عن حلقه وصل",
+        "شو بتعرف عن حلقه وصل", "فكره حلقه وصل", "فكرة حلقه وصل",
+        "احكيلي عن حلقه وصل", "معلومات عن حلقه وصل", "اشرح لي حلقه وصل",
+        "what is halqat wasl", "tell me about halqat wasl",
+    )):
+        product = ring.get("product", {})
+        if not isinstance(product, dict):
+            return None
+        summary = str(product.get("summary", "")).strip()
+        if not summary:
+            return None
+        how = str(product.get("how_it_works", "")).strip()
+        value = str(product.get("value", "")).strip()
+        parts = ["حلقة وصل: " + summary]
+        if how:
+            parts.append("كيف يعمل: " + how)
+        if value:
+            parts.append("الميزة: " + value)
+        return "\n".join(parts)
+
+    if any(p in n for p in ("google play", "جوجل بلاي", "play store")):
+        return "حالة Google Play غير معلنة في الذاكرة. التطبيق لسا ما انطلق رسميًا."
+
+    if any(p in n for p in ("app store", "ابل ستور", "اب ستور")):
+        return "حالة App Store غير معلنة في الذاكرة. التطبيق لسا ما انطلق رسميًا."
+
+    if any(p in n for p in ("ترخيص", "تراخيص", "license")):
+        lic = ring.get("license_status", {})
+        if isinstance(lic, dict):
+            state = str(lic.get("state", "")).strip()
+            note = str(lic.get("note", "")).strip()
+            if state:
+                return "حالة الترخيص: " + state + ". " + note
+        return "حالة الترخيص غير محفوظة."
+
+    if any(p in n for p in ("كيف اتواصل", "كيف أتواصل", "واتساب", "whatsapp", "contact")):
+        contact = str(ring.get("contact_reply", "")).strip()
+        if contact:
+            return contact
+        return None
+
+    return None
+
+def main():
+    print("=" * 50)
+    print("🤝 عون الجديد (الذكاء الخارق) جاهز.")
+    print("اكتب رسالتك، أو اكتب 'صوت' للتسجيل الصوتي، أو 'خروج' للإنهاء.")
+    print("=" * 50)
+    
+    history = []
+    
+    while True:
+        try:
+            user_input = input("\nأنت: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+            
+        if not user_input:
+            continue
+        if user_input.lower() in ("خروج", "exit", "quit"):
+            print("عون: يعطيك العافية يا بلال.")
+            break
+            
+        # وضع الصوت
+        if user_input == "صوت":
+            transcribed = record_and_transcribe()
+            if not transcribed:
+                print("عون: ما سمعتك بوضوح، جرب مرة ثانية.")
+                continue
+            print(f"(سمعتك: {transcribed})")
+            user_input = transcribed
+
+        # فحص التلقين الفوري
+        rule_msg = _update_rules_from_message(user_input)
+        if rule_msg:
+            print("عون: " + rule_msg)
+            speak(rule_msg)
+            continue
+
+        # بناء المحادثة
+        messages = [{"role": "system", "content": build_system_prompt()}]
+        messages.extend(history[-10:]) # آخر 10 رسائل للسياق
+        messages.append({"role": "user", "content": user_input})
+        
+        print("عون: ", end="", flush=True)
+        response = call_groq(messages, temperature=0.4)
+        print(response)
+        
+        # التحدث بالصوت
+        speak(response)
+        
+        # تحديث السياق
+        history.append({"role": "user", "content": user_input})
+        history.append({"role": "assistant", "content": response})
+        
+        # الاستخراج الذكي في الخلفية (بدون تعطيل المحادثة)
+        threading.Thread(target=smart_extract, args=(user_input, response), daemon=True).start()
+
+if __name__ == "__main__":
+    main()

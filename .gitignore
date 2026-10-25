@@ -1,0 +1,39 @@
+# Secrets
+.env
+.env.*
+
+# Memory & User Data
+memory_groq.json
+memory_groq.json.*
+rules_groq.json
+rules_groq.json.*
+ring_memory.json
+
+# Auth & Recovery
+auth_config.json
+RECOVERY_KEY.txt
+
+# SSL Certificates
+*.pem
+*.pem.backup
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Voice files
+.voice_*.mp3
+*.wav
+
+# Backups
+*.backup
+*_backup/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+awn_diagnostics.log
