@@ -1,0 +1,17 @@
+{
+  "name": "عون - رفيقك الشخصي",
+  "short_name": "عون",
+  "description": "مساعدك الشخصي الذكي",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#f39c12",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/4712/4712109.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
