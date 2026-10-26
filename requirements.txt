@@ -10,3 +10,4 @@ sounddevice
 soundfile
 numpy
 jinja2
+supabase
