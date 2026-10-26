@@ -17,7 +17,7 @@ from pathlib import Path
 
 # --- إعدادات Supabase ---
 from supabase import create_client, Client
-SUPABASE_URL = "https://uhlifvwyqicfghgvhlblf.supabase.co"
+SUPABASE_URL = "https://uhlfvwyqicfghgvhlblf.supabase.co"
 SUPABASE_KEY = "sb_publishable_TSwO74eFvovgkzAvQMYwKQ_v9IRsB-O"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
