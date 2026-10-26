@@ -33,7 +33,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # ==== الصفحة الرئيسية ====
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 
 # ==== تسجيل الدخول (PIN) ====
