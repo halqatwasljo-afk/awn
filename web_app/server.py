@@ -171,17 +171,20 @@ if __name__ == "__main__":
     print("🌐 للموبايل: https://192.168.100.37:8000")
     print("=" * 50)
     
-    # وضع السحابة (Hugging Face): بدون SSL (يوفره المنصة)
+    # وضع السحابة (Render): بدون SSL (يوفره المنصة)
     # وضع محلي (بيت بلال): مع SSL (للموبايل)
     import os as _os
     is_cloud = _os.getenv("AWN_CLOUD") == "1"
     
     if is_cloud:
         print("☁️  وضع السحابة - بدون SSL محلي")
+        # استخدام المنفذ الذي يحدده Render تلقائياً (أو 10000 كافتراضي)
+        port = int(_os.getenv("PORT", 10000))
+        print(f"🔌 يعمل على المنفذ: {port}")
         uvicorn.run(
             app,
             host="0.0.0.0",
-            port=7860
+            port=port
         )
     else:
         print("🏠 وضع محلي - مع SSL")
