@@ -80,22 +80,28 @@ def load_json(path, default):
         return default
 
 def save_json(path, data):
-    # إذا كان الملف هو الذاكرة، نحفظ في Supabase
+    # إذا كان الملف هو الذاكرة، نحفظ في الرام + Supabase
     if "memory_groq.json" in str(path):
-        try:
-            # حفظ الحقائق
-            for k, v in data.get("facts", {}).items():
-                supabase.table("awn_memory").upsert({"key": k, "value": str(v)}).execute()
-            # حفظ الأحداث
-            if "events" in data:
-                supabase.table("awn_memory").upsert({"key": "events", "value": json.dumps(data["events"], ensure_ascii=False)}).execute()
-            # حفظ القرارات
-            if "decisions" in data:
-                supabase.table("awn_memory").upsert({"key": "decisions", "value": json.dumps(data["decisions"], ensure_ascii=False)}).execute()
-            return
-        except Exception as e:
-            print(f"[Supabase Save Error] {e}")
-            return
+        # 1. تحديث الرام فوراً (سريع)
+        _memory_cache["facts"] = dict(data.get("facts", {}))
+        _memory_cache["events"] = list(data.get("events", []))
+        _memory_cache["decisions"] = list(data.get("decisions", []))
+        
+        # 2. إرسال لـ Supabase في الخلفية (لا ننتظر)
+        def _sync_to_supabase():
+            try:
+                for k, v in data.get("facts", {}).items():
+                    supabase.table("awn_memory").upsert({"key": k, "value": str(v)}).execute()
+                if "events" in data:
+                    supabase.table("awn_memory").upsert({"key": "events", "value": json.dumps(data["events"], ensure_ascii=False)}).execute()
+                if "decisions" in data:
+                    supabase.table("awn_memory").upsert({"key": "decisions", "value": json.dumps(data["decisions"], ensure_ascii=False)}).execute()
+            except Exception as e:
+                print(f"[Supabase Sync Error] {e}")
+        
+        import threading
+        threading.Thread(target=_sync_to_supabase, daemon=True).start()
+        return
 
     # إذا كان الملف هو القواعد، نحفظها في Supabase
     if "rules_groq.json" in str(path):
@@ -111,7 +117,14 @@ def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+# ==========================================
+# الذاكرة الهجينة (Hybrid Memory)
+# ==========================================
+# 1. قراءة من Supabase مرة واحدة عند بدء التشغيل
 memory = load_json(MEMORY_FILE, {"facts": {}, "events": []})
+# 2. نسخة في الرام (Cache) - سريعة جداً
+_memory_cache = {"facts": dict(memory.get("facts", {})), "events": list(memory.get("events", [])), "decisions": list(memory.get("decisions", []))}
+print(f"[HYBRID MEMORY] Loaded {len(_memory_cache['facts'])} facts from Supabase into cache")
 rules = load_json(RULES_FILE, {"rules": []})
 
 # --- محرك الصوت (TTS) ---
@@ -338,7 +351,8 @@ def call_groq(messages, temperature=0.3, json_mode=False):
 # --- بناء تعليمات النظام (System Prompt) ---
 def build_system_prompt():
     # تحويل الذاكرة إلى نص مختصر جداً لتوفير التوكنز
-    facts = memory.get("facts", {})
+    # نقرأ من الرام (سريع) بدل من Supabase (بطيء)
+    facts = _memory_cache.get("facts", {})
     short_memory = "\n".join([f"{k}: {v}" for k, v in facts.items()])
     memory_str = short_memory if short_memory else "لا توجد معلومات"
     rules_str = json.dumps(rules, ensure_ascii=False)
