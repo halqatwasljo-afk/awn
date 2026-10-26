@@ -58,7 +58,19 @@ def load_json(path, default):
             print(f"[Supabase Load Error] {e}")
             return default
             
-    # الملفات الأخرى (rules) نقرأها من الملفات المحلية كما هي
+    # إذا كان الملف هو القواعد، نقرأ من Supabase
+    if "rules_groq.json" in str(path):
+        try:
+            res = supabase.table("awn_memory").select("*").eq("key", "rules_list").execute()
+            if res.data:
+                rules_list = json.loads(res.data[0]["value"])
+                return {"rules": rules_list}
+            return default
+        except Exception as e:
+            print(f"[Supabase Rules Load Error] {e}")
+            return default
+
+    # الملفات الأخرى نقرأها من الملفات المحلية
     if not path.exists():
         return default
     try:
@@ -83,6 +95,16 @@ def save_json(path, data):
             return
         except Exception as e:
             print(f"[Supabase Save Error] {e}")
+            return
+
+    # إذا كان الملف هو القواعد، نحفظها في Supabase
+    if "rules_groq.json" in str(path):
+        try:
+            rules_list = data.get("rules", [])
+            supabase.table("awn_memory").upsert({"key": "rules_list", "value": json.dumps(rules_list, ensure_ascii=False)}).execute()
+            return
+        except Exception as e:
+            print(f"[Supabase Rules Save Error] {e}")
             return
 
     # الملفات الأخرى نحفظها محلياً
@@ -367,8 +389,8 @@ def _clean_fact_text(fact):
 
 
 def smart_extract(user_text, ai_reply):
-    if not any(cue in user_text for cue in ["احفظ", "تذكر", "سجل", "خلي بالك"]):
-        return
+    # التعديل: نعمل دائماً لاكتشاف التصحيحات والمعلومات الجديدة
+    pass
 
     """يستخرج الحقائق والقواعد في الخلفية ويحفظها تلقائياً."""
     prompt = f"""حلل هذه المحادثة واستخرج أي معلومة شخصية أو قاعدة سلوكية يجب تذكرها.
@@ -378,7 +400,12 @@ def smart_extract(user_text, ai_reply):
 أعد النتيجة بتنسيق JSON فقط يحتوي على:
 - "topic": كلمة إنجليزية واحدة قصيرة تصف موضوع المعلومة (مثل: "blood_pressure_medication", "hemorrhoids_medication", "age", "birthdate", "new_medication"). وإلا null.
 - "fact": المعلومة الشخصية بصيغة الغائب (مثال: "بلال يتناول ديوفان 160 للضغط" أو "تاريخ ميلاد بلال هو 31 يوليو 1975"). وإلا null.
-- "rule": القاعدة السلوكية. وإلا null.
+- "rule": القاعدة السلوكية الجديدة (إذا صحح المستخدم معلومة سابقة أو أعطى قاعدة سلوكية صريحة). وإلا null.
+
+ملاحظات مهمة جداً:
+- إذا قال المستخدم "لا" أو "غلط" أو "مش هيك" أو "الصحيح كذا" أو أي صيغة تصحيح، استخرج القاعدة الجديدة من التصحيح واحفظها كـ "rule".
+- مثال: إذا قال "لا يا عون، ديوفان مو ديران"، القاعدة هي: "دواء الضغط اسمه ديوفان 160 وليس ديران".
+- إذا أعطى معلومة جديدة غير موجودة، احفظها كـ "fact".
 """
     try:
         res = call_groq([{"role": "user", "content": prompt}], temperature=0.0, json_mode=True)
