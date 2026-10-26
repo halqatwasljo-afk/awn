@@ -220,14 +220,14 @@ def speak(text_to_speak, voice_name="ar-JO-TaimNeural"):
             # استخدام النموذج الذكي لتشكيل النص العربي تلقائياً
             if not is_english:
                 try:
-                    morph_prompt = f"أعد كتابة هذا النص العربي مع إضافة التشكيل الكامل (الحركات) لضمان النطق الصحيح، وأعد النص فقط بدون أي شرح: {text}"
-                    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-                    payload = {"model": MODEL, "messages": [{"role": "user", "content": morph_prompt}], "temperature": 0.0}
-                    r = requests.post(GROQ_URL, headers=headers, json=payload, timeout=10)
-                    if r.ok:
-                        text = r.json()["choices"][0]["message"]["content"].strip()
-                except Exception:
-                    pass
+                    morph_prompt = f"أعد كتابة هذا النص العربي مع إضافة التشكيل الكامل (الحركات) لضمان النطق الصحيح بلهجة أردنية، وأعد النص فقط بدون أي شرح: {text}"
+                    # استخدام Gemini للتشكيل (أدق من Groq)
+                    from google import genai
+                    client = genai.Client(api_key=GEMINI_API_KEY)
+                    resp = client.models.generate_content(model=GEMINI_MODEL, contents=morph_prompt)
+                    text = resp.text.strip()
+                except Exception as e:
+                    print(f"[Morph Error] {e}")
             text_morphed = text
 
             async def _gen():
@@ -349,6 +349,27 @@ def call_groq(messages, temperature=0.3, json_mode=False):
                 return f"[خطأ في الاتصال: {e}]"
 
 # --- بناء تعليمات النظام (System Prompt) ---
+
+def _clean_response_text(text):
+    """تنظيف الرد النصي من النجوم والترقيم قبل عرضه."""
+    if not text:
+        return text
+    # إزالة النجوم (bold, italic)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    # إزالة الترقيم في بداية السطر (1. 2. 3.)
+    text = re.sub(r'^\s*\d+\.\s*', '', text, flags=re.MULTILINE)
+    # إزالة الشرطات في بداية السطر (-, •)
+    text = re.sub(r'^\s*[-•]\s*', '', text, flags=re.MULTILINE)
+    # إزالة علامات # (headers)
+    text = re.sub(r'^\s*#+\s*', '', text, flags=re.MULTILINE)
+    # إزالة الرموز الأخرى
+    text = re.sub(r'[*_#`~<>\[\]{}|]', '', text)
+    # تنظيف المسافات الزائدة
+    text = re.sub(r'\n\s*\n+', '\n', text)
+    return text.strip()
+
+
 def build_system_prompt():
     # تحويل الذاكرة إلى نص مختصر جداً لتوفير التوكنز
     # نقرأ من الرام (سريع) بدل من Supabase (بطيء)
@@ -681,10 +702,12 @@ def main():
         
         print("عون: ", end="", flush=True)
         response = call_groq(messages, temperature=0.4)
-        print(response)
+        # تنظيف الرد من النجوم والترقيم قبل العرض
+        response_clean = _clean_response_text(response)
+        print(response_clean)
         
-        # التحدث بالصوت
-        speak(response)
+        # التحدث بالصوت (النص المنظف)
+        speak(response_clean)
         
         # تحديث السياق
         history.append({"role": "user", "content": user_input})
