@@ -52,18 +52,6 @@
                     <button id="menu-btn" onclick="toggleSidebar()">☰</button>
                     <h2>🤝 عون - رفيقك الشخصي</h2>
                 </div>
-                <div class="header-controls">
-                    <select id="voice-select">
-                        <option value="ar-JO-TaimNeural">عون (أردني)</option>
-                        <option value="ar-SY-LaithNeural">ليث (سوري)</option>
-                        <option value="ar-SY-AmanyNeural">أماني (سورية)</option>
-                        <option value="ar-LB-RamiNeural">رامي (لبناني)</option>
-                    </select>
-                    <label class="mute-toggle">
-                        <input type="checkbox" id="mute-audio"> 🔇 كتم الصوت
-                    </label>
-                    <button id="clear-btn" onclick="clearChat()">🗑️ مسح</button>
-                </div>
             </header>
 
             <main id="chat-container"></main>
@@ -75,6 +63,20 @@
                     <button id="send-btn" onclick="sendMessage()">إرسال ➤</button>
                 </div>
                 <p id="status" class="status"></p>
+                
+                <!-- شريط الأدوات السفلي الجديد -->
+                <div class="bottom-controls">
+                    <select id="voice-select">
+                        <option value="ar-JO-TaimNeural">عون (أردني)</option>
+                        <option value="ar-SY-LaithNeural">ليث (سوري)</option>
+                        <option value="ar-SY-AmanyNeural">أماني (سورية)</option>
+                        <option value="ar-LB-RamiNeural">رامي (لبناني)</option>
+                    </select>
+                    <label class="mute-toggle">
+                        <input type="checkbox" id="mute-audio"> 🔇 كتم الصوت
+                    </label>
+                    <button id="clear-btn" onclick="clearChat()">🗑️ مسح</button>
+                </div>
             </footer>
         </div>
     </div>
