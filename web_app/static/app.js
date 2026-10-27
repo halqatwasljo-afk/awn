@@ -30,17 +30,40 @@ async function login() {
             document.getElementById('msg-input').focus();
             loadSidebarData(); // جلب بيانات القائمة الجانبية
 
-            // ============ طلب رسالة الترحيب الذكية ============
+            // ============ طلب رسالة الترحيب الذكية (مع الصوت) ============
             setTimeout(async () => {
                 try {
+                    // نطلب الترحيب من السيرفر
                     const wRes = await fetch('/api/welcome', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({pin: currentPin})
                     });
                     const wData = await wRes.json();
+                    
                     if (wData.success && wData.welcome) {
-                        addMessage('bot', wData.welcome);
+                        // نرسل الترحيب إلى /api/chat للحصول على الصوت
+                        const chatRes = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                message: wData.welcome,
+                                history: [],
+                                pin: currentPin,
+                                voice: document.getElementById('voice-select').value,
+                                muted: document.getElementById('mute-audio').checked
+                            })
+                        });
+                        const chatData = await chatRes.json();
+                        
+                        if (chatData.success) {
+                            addMessage('bot', chatData.reply);
+                            chatHistory.push({role: 'assistant', content: chatData.reply});
+                            
+                            if (chatData.audio_base64 && !document.getElementById('mute-audio').checked) {
+                                playAudio(chatData.audio_base64);
+                            }
+                        }
                     }
                 } catch (e) {
                     console.log('Welcome error:', e);
