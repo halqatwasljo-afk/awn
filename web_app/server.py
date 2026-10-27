@@ -25,6 +25,9 @@ spec.loader.exec_module(awn)
 # ==== إعداد FastAPI ====
 app = FastAPI()
 
+# ==== متغير حالة الطوارئ ====
+SYSTEM_PAUSED = False
+
 # تحميل الملفات الثابتة والقوالب
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -60,7 +63,6 @@ async def api_login(data: dict):
 async def api_memory(data: dict):
     try:
         pin = data.get("pin", "")
-        # التحقق من الـ PIN (نفس منطق الدخول)
         auth_file = BASE_DIR / "auth_config.json"
         config = json.loads(auth_file.read_text(encoding="utf-8"))
         pin_hash = config.get("pin_hash", "")
@@ -69,7 +71,6 @@ async def api_memory(data: dict):
         if input_hash != pin_hash:
             return JSONResponse({"success": False, "error": "غير مصرح"})
         
-        # نقرأ الذاكرة من العقل
         facts = awn.memory.get("facts", {})
         return JSONResponse({"success": True, "facts": facts})
     
@@ -77,7 +78,6 @@ async def api_memory(data: dict):
         import traceback
         traceback.print_exc()
         return JSONResponse({"success": False, "error": str(e)})
-
 
 
 # ==== رسالة الترحيب الذكية ====
@@ -93,14 +93,12 @@ async def api_welcome(data: dict):
         if input_hash != pin_hash:
             return JSONResponse({"success": False, "error": "غير مصرح"})
         
-        # الحصول على الوقت (توقيت الأردن)
         from datetime import datetime, timedelta
         now = datetime.utcnow() + timedelta(hours=3)
         hour = now.hour
         
-        # اختيار الرسالة حسب الوقت (صيغة استقبال، وليس رد)
+        import random
         if 5 <= hour < 12:
-            # صباح
             greetings = [
                 "صباح الفل يا بلال! منور الصبح. كيفك اليوم؟",
                 "يا هلا بالصبح! صباحك سعيد يا رفيقي. كيفك اليوم؟",
@@ -110,20 +108,14 @@ async def api_welcome(data: dict):
                 "هل قرأت وردك من القرآن اليوم؟",
                 "هل صليت الفجر؟",
             ]
-            import random
-            greeting = random.choice(greetings)
-            religious = random.choice(religious_msgs)
-            welcome = f"{greeting} {religious}"
+            welcome = f"{random.choice(greetings)} {random.choice(religious_msgs)}"
         elif 12 <= hour < 18:
-            # ظهر
             greetings = [
                 "يا هلا يا بلال! منور. كيفك اليوم؟",
                 "أهلاً بعودتك يا رفيقي! كيفك اليوم؟",
             ]
-            import random
             welcome = random.choice(greetings)
         elif 18 <= hour < 22:
-            # مساء
             greetings = [
                 "يا هلا يا بلال! منور المسا. كيف كان يومك؟",
                 "أهلاً بعودتك يا رفيقي! اشتقتلك. كيف كان يومك؟",
@@ -133,17 +125,12 @@ async def api_welcome(data: dict):
                 "هل صليت العشاء؟",
                 "صلي على النبي يا بلال.",
             ]
-            import random
-            greeting = random.choice(greetings)
-            religious = random.choice(religious_msgs)
-            welcome = f"{greeting} {religious}"
+            welcome = f"{random.choice(greetings)} {random.choice(religious_msgs)}"
         else:
-            # ليل
             greetings = [
                 "يا هلا يا بلال! لسا صاحي؟ منور. كيفك؟",
                 "أهلاً بعودتك يا رفيقي! كيفك هالوقت؟",
             ]
-            import random
             welcome = random.choice(greetings)
         
         return JSONResponse({"success": True, "welcome": welcome})
@@ -154,7 +141,7 @@ async def api_welcome(data: dict):
         return JSONResponse({"success": False, "error": str(e)})
 
 
-# ==== توليد الصوت فقط (للترحيب) ====
+# ==== توليد الصوت فقط ====
 @app.post("/api/tts")
 async def api_tts(data: dict):
     try:
@@ -191,10 +178,56 @@ async def api_tts(data: dict):
         return JSONResponse({"success": False, "error": str(e)})
 
 
+# ==== Kill Switch (إيقاف الطوارئ) ====
+@app.post("/api/kill")
+async def api_kill(data: dict):
+    global SYSTEM_PAUSED
+    pin = data.get("pin", "")
+    auth_file = BASE_DIR / "auth_config.json"
+    config = json.loads(auth_file.read_text(encoding="utf-8"))
+    pin_hash = config.get("pin_hash", "")
+    input_hash = hashlib.sha256(pin.encode("utf-8")).hexdigest()
+    
+    if input_hash != pin_hash:
+        return JSONResponse({"success": False, "error": "غير مصرح"})
+    
+    SYSTEM_PAUSED = True
+    print("[KILL SWITCH] System paused!")
+    return JSONResponse({"success": True, "message": "تم إيقاف عون. النظام مجمد."})
+
+
+# ==== Resume (إعادة التشغيل) ====
+@app.post("/api/resume")
+async def api_resume(data: dict):
+    global SYSTEM_PAUSED
+    pin = data.get("pin", "")
+    auth_file = BASE_DIR / "auth_config.json"
+    config = json.loads(auth_file.read_text(encoding="utf-8"))
+    pin_hash = config.get("pin_hash", "")
+    input_hash = hashlib.sha256(pin.encode("utf-8")).hexdigest()
+    
+    if input_hash != pin_hash:
+        return JSONResponse({"success": False, "error": "غير مصرح"})
+    
+    SYSTEM_PAUSED = False
+    print("[KILL SWITCH] System resumed!")
+    return JSONResponse({"success": True, "message": "تم استئناف عون."})
+
+
+# ==== فحص حالة النظام ====
+@app.get("/api/status")
+async def api_status():
+    return JSONResponse({"paused": SYSTEM_PAUSED})
+
+
 # ==== المحادثة ====
 @app.post("/api/chat")
 async def api_chat(data: dict):
     try:
+        global SYSTEM_PAUSED
+        if SYSTEM_PAUSED:
+            return JSONResponse({"success": False, "error": "عون متوقف مؤقتاً بواسطة المدير التنفيذي (Kill Switch)."})
+        
         message = data.get("message", "").strip()
         history = data.get("history", [])
         voice = data.get("voice", "ar-JO-TaimNeural")
@@ -203,23 +236,19 @@ async def api_chat(data: dict):
         if not message:
             return JSONResponse({"success": False, "error": "رسالة فارغة"})
         
-        # 1. بناء الرسائل
         messages = [{"role": "system", "content": awn.build_system_prompt()}]
         for msg in history:
             messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": message})
         
-        # 2. استدعاء العقل (Gemini)
         response = awn.call_groq(messages, temperature=0.4)
         
-        # 3. تشغيل الاستخراج في الخلفية
         threading.Thread(
             target=awn.smart_extract,
             args=(message, response),
             daemon=True
         ).start()
         
-        # 4. توليد الصوت
         audio_b64 = None
         if not muted:
             try:
@@ -256,6 +285,10 @@ async def api_chat(data: dict):
 @app.post("/api/transcribe")
 async def api_transcribe(audio: UploadFile = File(...), pin: str = Form(...)):
     try:
+        global SYSTEM_PAUSED
+        if SYSTEM_PAUSED:
+            return JSONResponse({"success": False, "error": "عون متوقف مؤقتاً (Kill Switch)."})
+        
         print(f"[STT DEBUG] Filename: {audio.filename}, Content-Type: {audio.content_type}")
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
             content = await audio.read()
@@ -277,30 +310,19 @@ async def api_transcribe(audio: UploadFile = File(...), pin: str = Form(...)):
         return JSONResponse({"success": False, "error": str(e)})
 
 
-# ==== تشغيل الخادم مع SSL ====
+# ==== تشغيل الخادم ====
 if __name__ == "__main__":
     print("=" * 50)
     print("🚀 عون - الواجهة الاحترافية")
     print("=" * 50)
-    print("📱 الافتتاح على: https://localhost:8000")
-    print("🌐 للموبايل: https://192.168.100.37:8000")
-    print("=" * 50)
     
-    # وضع السحابة (Render): بدون SSL (يوفره المنصة)
-    # وضع محلي (بيت بلال): مع SSL (للموبايل)
     import os as _os
     is_cloud = _os.getenv("AWN_CLOUD") == "1"
     
     if is_cloud:
-        print("☁️  وضع السحابة - بدون SSL محلي")
-        # استخدام المنفذ الذي يحدده Render تلقائياً (أو 10000 كافتراضي)
         port = int(_os.getenv("PORT", 10000))
-        print(f"🔌 يعمل على المنفذ: {port}")
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=port
-        )
+        print(f"☁️ وضع السحابة - منفذ: {port}")
+        uvicorn.run(app, host="0.0.0.0", port=port)
     else:
         print("🏠 وضع محلي - مع SSL")
         uvicorn.run(

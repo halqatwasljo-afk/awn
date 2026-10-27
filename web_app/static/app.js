@@ -28,12 +28,14 @@ async function login() {
             document.getElementById('login-screen').classList.remove('active');
             document.getElementById('chat-screen').classList.add('active');
             document.getElementById('msg-input').focus();
-            loadSidebarData(); // جلب بيانات القائمة الجانبية
+            loadSidebarData();
 
-            // ============ طلب رسالة الترحيب الذكية (مع الصوت) ============
+            // فحص حالة النظام (هل هو متوقف؟)
+            checkSystemStatus();
+
+            // طلب رسالة الترحيب الذكية (مع الصوت)
             setTimeout(async () => {
                 try {
-                    // نطلب الترحيب من السيرفر
                     const wRes = await fetch('/api/welcome', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -42,10 +44,8 @@ async function login() {
                     const wData = await wRes.json();
                     
                     if (wData.success && wData.welcome) {
-                        // نعرض رسالة الترحيب النصية
                         addMessage('bot', wData.welcome);
                         
-                        // نطلب الصوت فقط من /api/tts (بدون Gemini)
                         const ttsRes = await fetch('/api/tts', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
@@ -64,7 +64,6 @@ async function login() {
                     console.log('Welcome error:', e);
                 }
             }, 500);
-            // ============ نهاية الترحيب ============
 
         } else {
             errorEl.textContent = data.message || 'الكود السري خطأ';
@@ -78,6 +77,82 @@ async function login() {
 document.getElementById('pin-input')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') login();
 });
+
+// ============ Kill Switch ============
+async function killSwitch() {
+    const confirm = window.confirm('⚠️ هل أنت متأكد؟ سيتم إيقاف عون فوراً. هل تريد المتابعة؟');
+    if (!confirm) return;
+
+    try {
+        const res = await fetch('/api/kill', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pin: currentPin})
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            document.getElementById('kill-overlay').style.display = 'flex';
+            document.getElementById('resume-pin').value = '';
+            document.getElementById('resume-error').textContent = '';
+            document.getElementById('resume-pin').focus();
+        } else {
+            alert('فشل: ' + (data.error || 'خطأ غير معروف'));
+        }
+    } catch (e) {
+        alert('خطأ في الاتصال');
+    }
+}
+
+// ============ Resume System ============
+async function resumeSystem() {
+    const pin = document.getElementById('resume-pin').value.trim();
+    const errorEl = document.getElementById('resume-error');
+
+    if (!pin) {
+        errorEl.textContent = 'الرجاء إدخال الكود السري';
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/resume', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pin: pin})
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            currentPin = pin;
+            document.getElementById('kill-overlay').style.display = 'none';
+            setStatus('✅ تم استئناف عون بنجاح');
+            setTimeout(() => setStatus(''), 3000);
+        } else {
+            errorEl.textContent = data.error || 'الكود السري خطأ';
+        }
+    } catch (e) {
+        errorEl.textContent = 'خطأ في الاتصال';
+    }
+}
+
+// السماح بالاستئناف بمفتاح Enter
+document.getElementById('resume-pin')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') resumeSystem();
+});
+
+// ============ فحص حالة النظام ============
+async function checkSystemStatus() {
+    try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (data.paused) {
+            document.getElementById('kill-overlay').style.display = 'flex';
+            document.getElementById('resume-pin').focus();
+        }
+    } catch (e) {
+        console.log('Status check error:', e);
+    }
+}
 
 // ============ القائمة الجانبية ============
 function toggleSidebar() {
@@ -103,8 +178,6 @@ async function loadSidebarData() {
 
         if (data.success) {
             const facts = Object.values(data.facts || {});
-            
-            // تصنيف البيانات (نفس منطق الواجهة القديمة)
             const meds = facts.filter(v => v.includes('دواء') || v.includes('أسبرين') || v.includes('ديوفان') || v.includes('زايلوفيل'));
             const personal = facts.filter(v => v.includes('عمر') || v.includes('الميلاد') || v.includes('اسم'));
             const other = facts.filter(v => !meds.includes(v) && !personal.includes(v));
@@ -164,7 +237,6 @@ async function sendMessage() {
                 playAudio(data.audio_base64);
             }
             
-            // نحدث القائمة الجانبية لو انحفظ شي جديد
             loadSidebarData();
         } else {
             addMessage('bot', '❌ ' + (data.error || 'حدث خطأ'));
@@ -177,7 +249,7 @@ async function sendMessage() {
     }
 }
 
-// Enter لإرسال، Shift+Enter لسطر جديد
+// Enter لإرسال
 document.getElementById('msg-input')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -185,7 +257,7 @@ document.getElementById('msg-input')?.addEventListener('keypress', (e) => {
     }
 });
 
-// زيادة ارتفاع textarea تلقائياً
+// زيادة ارتفاع textarea
 document.getElementById('msg-input')?.addEventListener('input', function() {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 120) + 'px';
@@ -223,7 +295,7 @@ function clearChat() {
     document.getElementById('chat-container').innerHTML = '';
 }
 
-// ============ المايك (تسجيل صوتي) ============
+// ============ المايك ============
 async function toggleRecording() {
     if (isRecording) {
         stopRecording();

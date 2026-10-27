@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>عون - رفيقك الشخصي</title>
     <link rel="manifest" href="/static/manifest.json">
-    <link rel="stylesheet" href="/static/style.css?v=1.1">
+    <link rel="stylesheet" href="/static/style.css?v=1.2">
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -56,6 +56,16 @@
 
             <main id="chat-container"></main>
 
+            <!-- شاشة الطوارئ (تظهر عند الضغط على Kill Switch) -->
+            <div id="kill-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #7f1d1d; z-index: 9999; align-items: center; justify-content: center; flex-direction: column; color: #fff; padding: 20px; text-align: center;">
+                <div style="font-size: 80px; margin-bottom: 20px;">🛑</div>
+                <h1 style="font-size: 32px; margin-bottom: 15px;">تم إيقاف عون</h1>
+                <p style="font-size: 18px; margin-bottom: 30px; opacity: 0.9;">النظام مجمد بواسطة المدير التنفيذي (Kill Switch)</p>
+                <input type="password" id="resume-pin" placeholder="أدخل الكود السري للاستئناف" style="padding: 12px 20px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 15px; width: 80%; max-width: 300px; text-align: center; font-family: inherit;" />
+                <button onclick="resumeSystem()" style="padding: 12px 40px; font-size: 16px; border-radius: 8px; border: none; background: #10b981; color: #fff; font-weight: 700; cursor: pointer; font-family: inherit;">استئناف ✅</button>
+                <p id="resume-error" style="color: #fca5a5; margin-top: 15px; font-size: 14px;"></p>
+            </div>
+
             <footer>
                 <div class="input-area">
                     <button id="mic-btn" onclick="toggleRecording()">🎤</button>
@@ -76,12 +86,13 @@
                         <input type="checkbox" id="mute-audio"> 🔇 كتم الصوت
                     </label>
                     <button id="clear-btn" onclick="clearChat()">🗑️ مسح</button>
+                    <button id="kill-btn" onclick="killSwitch()" style="background: #ef4444; color: #fff; border: none; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 700;">🛑 إيقاف طوارئ</button>
                 </div>
             </footer>
         </div>
     </div>
 
     <audio id="player" style="display: none;"></audio>
-    <script src="/static/app.js?v=1.1"></script>
+    <script src="/static/app.js?v=1.2"></script>
 </body>
 </html>
