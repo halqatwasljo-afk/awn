@@ -98,33 +98,53 @@ async def api_welcome(data: dict):
         now = datetime.utcnow() + timedelta(hours=3)
         hour = now.hour
         
-        # اختيار الرسالة حسب الوقت
+        # اختيار الرسالة حسب الوقت (صيغة استقبال، وليس رد)
         if 5 <= hour < 12:
             # صباح
+            greetings = [
+                "صباح الفل يا بلال! منور الصبح. كيفك اليوم؟",
+                "يا هلا بالصبح! صباحك سعيد يا رفيقي. كيفك اليوم؟",
+            ]
             religious_msgs = [
                 "هل قرأت أذكار الصباح اليوم؟",
                 "هل قرأت وردك من القرآن اليوم؟",
                 "هل صليت الفجر؟",
             ]
             import random
+            greeting = random.choice(greetings)
             religious = random.choice(religious_msgs)
-            welcome = f"صباح الخير يا بلال، كيفك اليوم؟ {religious}"
+            welcome = f"{greeting} {religious}"
         elif 12 <= hour < 18:
             # ظهر
-            welcome = "مساء الخير يا رفيقي، كيف كان يومك؟"
+            greetings = [
+                "يا هلا يا بلال! منور. كيفك اليوم؟",
+                "أهلاً بعودتك يا رفيقي! كيفك اليوم؟",
+            ]
+            import random
+            welcome = random.choice(greetings)
         elif 18 <= hour < 22:
             # مساء
+            greetings = [
+                "يا هلا يا بلال! منور المسا. كيف كان يومك؟",
+                "أهلاً بعودتك يا رفيقي! اشتقتلك. كيف كان يومك؟",
+            ]
             religious_msgs = [
                 "لا تنسى أذكار المساء.",
                 "هل صليت العشاء؟",
                 "صلي على النبي يا بلال.",
             ]
             import random
+            greeting = random.choice(greetings)
             religious = random.choice(religious_msgs)
-            welcome = f"مساء الخير يا رفيقي، كيف كان يومك؟ {religious}"
+            welcome = f"{greeting} {religious}"
         else:
             # ليل
-            welcome = "يا هلا يا بلال، لسا صاحي؟ كيفك؟"
+            greetings = [
+                "يا هلا يا بلال! لسا صاحي؟ منور. كيفك؟",
+                "أهلاً بعودتك يا رفيقي! كيفك هالوقت؟",
+            ]
+            import random
+            welcome = random.choice(greetings)
         
         return JSONResponse({"success": True, "welcome": welcome})
     
