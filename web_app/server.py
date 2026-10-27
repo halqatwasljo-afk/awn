@@ -79,6 +79,61 @@ async def api_memory(data: dict):
         return JSONResponse({"success": False, "error": str(e)})
 
 
+
+# ==== رسالة الترحيب الذكية ====
+@app.post("/api/welcome")
+async def api_welcome(data: dict):
+    try:
+        pin = data.get("pin", "")
+        auth_file = BASE_DIR / "auth_config.json"
+        config = json.loads(auth_file.read_text(encoding="utf-8"))
+        pin_hash = config.get("pin_hash", "")
+        input_hash = hashlib.sha256(pin.encode("utf-8")).hexdigest()
+        
+        if input_hash != pin_hash:
+            return JSONResponse({"success": False, "error": "غير مصرح"})
+        
+        # الحصول على الوقت (توقيت الأردن)
+        from datetime import datetime, timedelta
+        now = datetime.utcnow() + timedelta(hours=3)
+        hour = now.hour
+        
+        # اختيار الرسالة حسب الوقت
+        if 5 <= hour < 12:
+            # صباح
+            religious_msgs = [
+                "هل قرأت أذكار الصباح اليوم؟",
+                "هل قرأت وردك من القرآن اليوم؟",
+                "هل صليت الفجر؟",
+            ]
+            import random
+            religious = random.choice(religious_msgs)
+            welcome = f"صباح الخير يا بلال، كيفك اليوم؟ {religious}"
+        elif 12 <= hour < 18:
+            # ظهر
+            welcome = "مساء الخير يا رفيقي، كيف كان يومك؟"
+        elif 18 <= hour < 22:
+            # مساء
+            religious_msgs = [
+                "لا تنسى أذكار المساء.",
+                "هل صليت العشاء؟",
+                "صلي على النبي يا بلال.",
+            ]
+            import random
+            religious = random.choice(religious_msgs)
+            welcome = f"مساء الخير يا رفيقي، كيف كان يومك؟ {religious}"
+        else:
+            # ليل
+            welcome = "يا هلا يا بلال، لسا صاحي؟ كيفك؟"
+        
+        return JSONResponse({"success": True, "welcome": welcome})
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)})
+
+
 # ==== المحادثة ====
 @app.post("/api/chat")
 async def api_chat(data: dict):
@@ -144,8 +199,11 @@ async def api_chat(data: dict):
 @app.post("/api/transcribe")
 async def api_transcribe(audio: UploadFile = File(...), pin: str = Form(...)):
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        print(f"[STT DEBUG] Filename: {audio.filename}, Content-Type: {audio.content_type}")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
             content = await audio.read()
+            print(f"[STT DEBUG] Received bytes: {len(content)}")
+            print(f"[STT DEBUG] First 16 bytes (hex): {content[:16].hex()}")
             tmp.write(content)
             tmp_path = tmp.name
         

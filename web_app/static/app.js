@@ -29,6 +29,25 @@ async function login() {
             document.getElementById('chat-screen').classList.add('active');
             document.getElementById('msg-input').focus();
             loadSidebarData(); // جلب بيانات القائمة الجانبية
+
+            // ============ طلب رسالة الترحيب الذكية ============
+            setTimeout(async () => {
+                try {
+                    const wRes = await fetch('/api/welcome', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({pin: currentPin})
+                    });
+                    const wData = await wRes.json();
+                    if (wData.success && wData.welcome) {
+                        addMessage('bot', wData.welcome);
+                    }
+                } catch (e) {
+                    console.log('Welcome error:', e);
+                }
+            }, 500);
+            // ============ نهاية الترحيب ============
+
         } else {
             errorEl.textContent = data.message || 'الكود السري خطأ';
         }
@@ -200,7 +219,7 @@ async function toggleRecording() {
 
         mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
         mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(audioChunks, {type: 'audio/wav'});
+            const audioBlob = new Blob(audioChunks, {type: 'audio/webm'});
             await sendAudio(audioBlob);
             stream.getTracks().forEach(t => t.stop());
         };
@@ -225,7 +244,7 @@ function stopRecording() {
 
 async function sendAudio(blob) {
     const formData = new FormData();
-    formData.append('audio', blob, 'voice.wav');
+    formData.append('audio', blob, 'voice.webm');
     formData.append('pin', currentPin);
 
     try {
