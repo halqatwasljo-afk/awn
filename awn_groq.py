@@ -403,9 +403,9 @@ def _clean_response_text(text):
 
 
 def get_current_time():
-    """إرجاع الوقت والتاريخ الحاليين بالعربية."""
-    from datetime import datetime
-    now = datetime.now()
+    """إرجاع الوقت والتاريخ الحاليين بتوقيت الأردن (UTC+3)."""
+    from datetime import datetime, timedelta
+    now = datetime.utcnow() + timedelta(hours=3)
     # تنسيق الوقت
     time_str = now.strftime("%I:%M %p")
     # تنسيق التاريخ
@@ -414,7 +414,7 @@ def get_current_time():
     day_name = days_ar[now.weekday()]
     month_name = months_ar[now.month - 1]
     date_str = f"{day_name}، {now.day} {month_name} {now.year}"
-    return f"الوقت الحالي: {time_str}. التاريخ: {date_str}."
+    return f"الوقت الحالي (توقيت الأردن): {time_str}. التاريخ: {date_str}."
 
 
 def build_system_prompt():
