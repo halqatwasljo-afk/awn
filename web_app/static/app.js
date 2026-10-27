@@ -42,27 +42,22 @@ async function login() {
                     const wData = await wRes.json();
                     
                     if (wData.success && wData.welcome) {
-                        // نرسل الترحيب إلى /api/chat للحصول على الصوت
-                        const chatRes = await fetch('/api/chat', {
+                        // نعرض رسالة الترحيب النصية
+                        addMessage('bot', wData.welcome);
+                        
+                        // نطلب الصوت فقط من /api/tts (بدون Gemini)
+                        const ttsRes = await fetch('/api/tts', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({
-                                message: wData.welcome,
-                                history: [],
-                                pin: currentPin,
-                                voice: document.getElementById('voice-select').value,
-                                muted: document.getElementById('mute-audio').checked
+                                text: wData.welcome,
+                                voice: document.getElementById('voice-select').value
                             })
                         });
-                        const chatData = await chatRes.json();
+                        const ttsData = await ttsRes.json();
                         
-                        if (chatData.success) {
-                            addMessage('bot', chatData.reply);
-                            chatHistory.push({role: 'assistant', content: chatData.reply});
-                            
-                            if (chatData.audio_base64 && !document.getElementById('mute-audio').checked) {
-                                playAudio(chatData.audio_base64);
-                            }
+                        if (ttsData.success && ttsData.audio_base64 && !document.getElementById('mute-audio').checked) {
+                            playAudio(ttsData.audio_base64);
                         }
                     }
                 } catch (e) {
