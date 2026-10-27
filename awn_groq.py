@@ -39,24 +39,37 @@ GEMINI_MODEL = "gemini-3.5-flash-lite"
 def load_json(path, default):
     # إذا كان الملف هو الذاكرة، نقرأ من Supabase
     if "memory_groq.json" in str(path):
-        try:
-            res = supabase.table("awn_memory").select("*").execute()
-            data = res.data
-            if data:
-                # إعادة بناء الذاكرة من قاعدة البيانات
-                new_memory = {"facts": {}, "events": [], "decisions": []}
-                for row in data:
-                    if row["key"].startswith("fact_"):
-                        new_memory["facts"][row["key"]] = row["value"]
-                    elif row["key"] == "events":
-                        new_memory["events"] = json.loads(row["value"])
-                    elif row["key"] == "decisions":
-                        new_memory["decisions"] = json.loads(row["value"])
-                return new_memory
-            return default
-        except Exception as e:
-            print(f"[Supabase Load Error] {e}")
-            return default
+        # Retry: محاولة 3 مرات
+        import time as _time
+        for attempt in range(3):
+            try:
+                res = supabase.table("awn_memory").select("*").execute()
+                data = res.data
+                if data:
+                    new_memory = {"facts": {}, "events": [], "decisions": []}
+                    for row in data:
+                        if row["key"].startswith("fact_"):
+                            new_memory["facts"][row["key"]] = row["value"]
+                        elif row["key"] == "events":
+                            new_memory["events"] = json.loads(row["value"])
+                        elif row["key"] == "decisions":
+                            new_memory["decisions"] = json.loads(row["value"])
+                    return new_memory
+                return default
+            except Exception as e:
+                print(f"[Supabase Load Error attempt {attempt+1}/3] {e}")
+                if attempt < 2:
+                    _time.sleep(2 ** attempt)  # انتظار 1، 2، 4 ثواني
+                else:
+                    print("[Supabase] All retries failed. Using local fallback.")
+                    # Fallback: قراءة من الملف المحلي
+                    if path.exists():
+                        try:
+                            with open(path, "r", encoding="utf-8") as f:
+                                return json.load(f)
+                        except Exception:
+                            pass
+                    return default
             
     # إذا كان الملف هو القواعد، نقرأ من Supabase
     if "rules_groq.json" in str(path):
@@ -89,15 +102,33 @@ def save_json(path, data):
         
         # 2. إرسال لـ Supabase في الخلفية (لا ننتظر)
         def _sync_to_supabase():
-            try:
-                for k, v in data.get("facts", {}).items():
-                    supabase.table("awn_memory").upsert({"key": k, "value": str(v)}).execute()
-                if "events" in data:
-                    supabase.table("awn_memory").upsert({"key": "events", "value": json.dumps(data["events"], ensure_ascii=False)}).execute()
-                if "decisions" in data:
-                    supabase.table("awn_memory").upsert({"key": "decisions", "value": json.dumps(data["decisions"], ensure_ascii=False)}).execute()
-            except Exception as e:
-                print(f"[Supabase Sync Error] {e}")
+            # Retry: محاولة 3 مرات
+            import time as _time
+            for attempt in range(3):
+                try:
+                    for k, v in data.get("facts", {}).items():
+                        supabase.table("awn_memory").upsert({"key": k, "value": str(v)}).execute()
+                    if "events" in data:
+                        supabase.table("awn_memory").upsert({"key": "events", "value": json.dumps(data["events"], ensure_ascii=False)}).execute()
+                    if "decisions" in data:
+                        supabase.table("awn_memory").upsert({"key": "decisions", "value": json.dumps(data["decisions"], ensure_ascii=False)}).execute()
+                    # Fallback: حفظ في الملف المحلي أيضاً
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    return  # نجح
+                except Exception as e:
+                    print(f"[Supabase Sync Error attempt {attempt+1}/3] {e}")
+                    if attempt < 2:
+                        _time.sleep(2 ** attempt)
+                    else:
+                        print("[Supabase] All sync retries failed. Data saved only in cache.")
+                        # Fallback: حفظ في الملف المحلي
+                        try:
+                            with open(path, "w", encoding="utf-8") as f:
+                                json.dump(data, f, ensure_ascii=False, indent=2)
+                            print("[Supabase] Saved to local file as fallback.")
+                        except Exception as fe:
+                            print(f"[Local Fallback Error] {fe}")
         
         import threading
         threading.Thread(target=_sync_to_supabase, daemon=True).start()
