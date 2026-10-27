@@ -474,8 +474,14 @@ def _clean_fact_text(fact):
 
 
 def smart_extract(user_text, ai_reply):
-    # التعديل: نعمل دائماً لاكتشاف التصحيحات والمعلومات الجديدة
-    pass
+    # فلتر: فقط نستخرج إذا فيه إشارة تصحيح أو طلب تذكر صريح
+    correction_cues = ["لا يا", "غلط", "مش هيك", "الصحيح", "مو صح", "خطأ", "تصحيح", "بدل", "بالعكس"]
+    remember_cues = ["احفظ", "تذكر", "سجل", "خلي بالك"]
+    has_correction = any(c in user_text for c in correction_cues)
+    has_remember = any(c in user_text for c in remember_cues)
+    
+    if not (has_correction or has_remember):
+        return  # لا نستخرج من الكلام العادي
 
     """يستخرج الحقائق والقواعد في الخلفية ويحفظها تلقائياً."""
     prompt = f"""حلل هذه المحادثة واستخرج أي معلومة شخصية أو قاعدة سلوكية يجب تذكرها.
@@ -531,10 +537,21 @@ def smart_extract(user_text, ai_reply):
             # print(f" [تم الحفظ في الخلفية: {data['fact']}]")
             
         if data.get("rule"):
-            if data["rule"] not in rules["rules"]:
-                rules["rules"].append(data["rule"])
+            new_rule = data["rule"].strip()
+            is_duplicate = False
+            # فحص القواعد القديمة للتشابه
+            for i, existing_rule in enumerate(rules["rules"]):
+                words_new = set(new_rule.lower().split())
+                words_old = set(existing_rule.lower().split())
+                if len(words_new & words_old) / max(len(words_new), 1) > 0.7:
+                    # تحديث القاعدة القديمة
+                    rules["rules"][i] = new_rule
+                    save_json(RULES_FILE, rules)
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                rules["rules"].append(new_rule)
                 save_json(RULES_FILE, rules)
-            # print(f" [تم حفظ القاعدة في الخلفية: {data['rule']}]")
     except Exception:
         pass # نتجاهل أخطاء الخلفية بصمت لعدم إزعاج المستخدم
 
