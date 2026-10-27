@@ -314,7 +314,15 @@ def record_and_transcribe_from_file(file_path):
         
         with open(file_path, "rb") as f:
             files = {"file": (Path(file_path).name, f)}
-            data = {"model": "whisper-large-v3-turbo", "language": "ar", "response_format": "json"}
+            # إضافة Prompt أردني لتحسين الدقة
+            _whisper_prompt = (
+                "هذا نص بلهجة أردنية. الكلمات الشائعة: "
+                "عون، بلال، حلقة وصل، ديوفان، أسبرين، زايلوفيل، "
+                "الضغط، القلب، البواسير، القهوة التركية، القهوة السادة، "
+                "يا صاحبي، يا غالي، يا رفيقي، كيفك، شو، منيح، تمام، "
+                "محمد أبو زيد، الضبع، مهنا، الأذكار، صلاة، قرآن."
+            )
+            data = {"model": "whisper-large-v3-turbo", "language": "ar", "response_format": "json", "prompt": _whisper_prompt}
             response = requests.post(url, headers=headers, files=files, data=data, timeout=20)
             
         if response.status_code == 200:
