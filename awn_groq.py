@@ -107,11 +107,11 @@ def save_json(path, data):
             for attempt in range(3):
                 try:
                     for k, v in data.get("facts", {}).items():
-                        supabase.table("awn_memory").upsert({"key": k, "value": str(v)}).execute()
+                        supabase.table("awn_memory").upsert({"key": k, "value": str(v)}, on_conflict="key").execute()
                     if "events" in data:
-                        supabase.table("awn_memory").upsert({"key": "events", "value": json.dumps(data["events"], ensure_ascii=False)}).execute()
+                        supabase.table("awn_memory").upsert({"key": "events", "value": json.dumps(data["events"], ensure_ascii=False)}, on_conflict="key").execute()
                     if "decisions" in data:
-                        supabase.table("awn_memory").upsert({"key": "decisions", "value": json.dumps(data["decisions"], ensure_ascii=False)}).execute()
+                        supabase.table("awn_memory").upsert({"key": "decisions", "value": json.dumps(data["decisions"], ensure_ascii=False)}, on_conflict="key").execute()
                     # Fallback: حفظ في الملف المحلي أيضاً
                     with open(path, "w", encoding="utf-8") as f:
                         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -138,7 +138,7 @@ def save_json(path, data):
     if "rules_groq.json" in str(path):
         try:
             rules_list = data.get("rules", [])
-            supabase.table("awn_memory").upsert({"key": "rules_list", "value": json.dumps(rules_list, ensure_ascii=False)}).execute()
+            supabase.table("awn_memory").upsert({"key": "rules_list", "value": json.dumps(rules_list, ensure_ascii=False)}, on_conflict="key").execute()
             return
         except Exception as e:
             print(f"[Supabase Rules Save Error] {e}")
