@@ -134,6 +134,43 @@ async def api_welcome(data: dict):
         return JSONResponse({"success": False, "error": str(e)})
 
 
+# ==== توليد الصوت فقط (للترحيب) ====
+@app.post("/api/tts")
+async def api_tts(data: dict):
+    try:
+        text = data.get("text", "").strip()
+        voice = data.get("voice", "ar-JO-TaimNeural")
+        
+        if not text:
+            return JSONResponse({"success": False, "error": "نص فارغ"})
+        
+        try:
+            is_english = sum(1 for c in text if c.isascii() and c.isalpha()) > (len(text) / 2)
+            chosen_voice = "en-US-AndrewNeural" if is_english else voice
+            
+            async def gen_audio():
+                communicate = edge_tts.Communicate(text, chosen_voice)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                    tmp_path = tmp.name
+                await communicate.save(tmp_path)
+                return tmp_path
+            
+            audio_path = await gen_audio()
+            with open(audio_path, "rb") as f:
+                audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+            os.unlink(audio_path)
+            
+            return JSONResponse({"success": True, "audio_base64": audio_b64})
+        except Exception as e:
+            print(f"[TTS error] {e}")
+            return JSONResponse({"success": False, "error": str(e)})
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)})
+
+
 # ==== المحادثة ====
 @app.post("/api/chat")
 async def api_chat(data: dict):
