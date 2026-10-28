@@ -552,6 +552,7 @@ def build_system_prompt():
 
 # --- الاستخراج الذكي في الخلفية (Background Extraction) ---
 def _clean_fact_text(fact):
+    fact = str(fact).translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
     if not fact:
         return ""
     prefixes = sorted([
