@@ -545,6 +545,7 @@ def build_system_prompt():
 10. الهيكلة التقنية: إذا سُئلت عن "مكونات نظامك" أو "هيكلتك التقنية" أو "كيف تعمل"، أجب من الذاكرة (ابحث عن fact_system_architecture) واذكر المكونات الخمسة بوضوح.
 11. الوقت والتاريخ: إليك الوقت والتاريخ الحاليان (استخدمهما إذا سُئلت عن الساعة أو اليوم):
 {get_current_time()}
+5.5 الأولوية المطلقة: الذاكرة والمعلومات هي المصدر الوحيد والأحدث للحقيقة. إذا وجدت أي تعارض بين أي معلومة في الذاكرة (مثل اللون أو الأكل) وبين أي قاعدة قديمة، يجب عليك تجاهل القاعدة القديمة فوراً واعتماد الذاكرة الجديدة دون تردد.
 6. القواعد السلوكية التي تعلمتها (التزم بها حرفياً):
 {rules_str}
 """
@@ -603,7 +604,9 @@ def smart_extract(user_text, ai_reply):
 - "rule": القاعدة السلوكية الجديدة (إذا صحح المستخدم معلومة سابقة أو أعطى قاعدة سلوكية صريحة). وإلا null.
 
 ملاحظات مهمة جداً:
-- إذا قال المستخدم "لا" أو "غلط" أو "مش هيك" أو "الصحيح كذا" أو أي صيغة تصحيح، استخرج القاعدة الجديدة من التصحيح واحفظها كـ "rule".
+- "fact": أي معلومة شخصية عن المستخدم (اسم، لون، أكل، دواء، عائلة). حتى لو قال "صحح" أو "غلط"، إذا كانت معلومة شخصية، احفظها كـ "fact" ولا تحفظها كقاعدة أبداً.
+- "rule": فقط تعليمات سلوكية (مثل: تحدث بالأردني، لا تذكر الكود).
+- حقل "topic": استخدم كلمة إنجليزية ثابتة للموضوع (مثل: favorite_color, favorite_food).
 - مثال: إذا قال "لا يا عون، ديوفان مو ديران"، القاعدة هي: "دواء الضغط اسمه ديوفان 160 وليس ديران".
 - إذا أعطى معلومة جديدة غير موجودة، احفظها كـ "fact".
 """
@@ -627,21 +630,31 @@ def smart_extract(user_text, ai_reply):
                 new_fact = _cleaned_fact
                 
                 # فحص التكرار: البحث عن تشابه 80%
+                key = f"fact_{topic}"
                 is_duplicate = False
-                for existing_key, existing_val in list(memory["facts"].items()):
-                    existing = str(existing_val).strip()
-                    words_new = set(new_fact.lower().split())
-                    words_old = set(existing.lower().split())
-                    if len(words_new & words_old) / max(len(words_new), 1) > 0.5:
-                        # تحديث المعلومة القديمة
-                        memory["facts"][existing_key] = new_fact
+                # 1. Exact Topic Match (Priority)
+                if key in memory["facts"]:
+                    existing_val = memory["facts"][key]
+                    if existing_val != new_fact:
+                        memory["facts"][key] = new_fact
                         save_json(MEMORY_FILE, memory)
-                        log_correction(user_text, "fact_update", existing_key, existing_val, new_fact)
-                        is_duplicate = True
-                        break
-                
+                        log_correction(user_text, "fact_update", key, existing_val, new_fact)
+                    is_duplicate = True
+
+                # 2. Fallback to Similarity
                 if not is_duplicate:
-                    key = f"fact_{topic}"
+                    for existing_key, existing_val in list(memory["facts"].items()):
+                        existing = str(existing_val).strip()
+                        words_new = set(new_fact.lower().split())
+                        words_old = set(existing.lower().split())
+                        if len(words_new & words_old) / max(len(words_new), 1) > 0.5:
+                            memory["facts"][existing_key] = new_fact
+                            save_json(MEMORY_FILE, memory)
+                            log_correction(user_text, "fact_update", existing_key, existing_val, new_fact)
+                            is_duplicate = True
+                            break
+
+                if not is_duplicate:
                     memory["facts"][key] = new_fact
                     save_json(MEMORY_FILE, memory)
                     log_correction(user_text, "fact_add", key, "", new_fact)
