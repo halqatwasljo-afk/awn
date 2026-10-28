@@ -35,6 +35,51 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.5-flash-lite"
 # End Provider Config
 
+
+# ==========================================
+# إعدادات Nawah (محلي فقط)
+# ==========================================
+USE_NAWAH = os.getenv("USE_NAWAH", "0") == "1"
+NAWAH_DIR = APP_DIR / "models" / "nawah"
+_nawah_model = None
+_nawah_tokenizer = None
+
+def _load_nawah():
+    """تحميل نموذج Nawah (مرة واحدة، مع cache)."""
+    global _nawah_model, _nawah_tokenizer
+    return None, None  # NAWAH DISABLED - root kill (see backup)
+    if False:  # NAWAH DISABLED - see backup
+            pass
+    if _nawah_model is not None:
+        return _nawah_model, _nawah_tokenizer
+    
+    if not NAWAH_DIR.exists():
+        print(f"[Nawah] Directory not found: {NAWAH_DIR}")
+        return None, None
+    
+    import sys
+    sys.path.insert(0, str(NAWAH_DIR))
+    
+    try:
+        import parakeet_model as P
+        from tokenizers import Tokenizer
+        
+        model_path = NAWAH_DIR / "nawah_asr_60m_max_arabic.pt"
+        tokenizer_path = NAWAH_DIR / "tokenizer_bpe1024.json"
+        
+        if not model_path.exists() or not tokenizer_path.exists():
+            print(f"[Nawah] Model files missing")
+            return None, None
+        
+        print("[Nawah] Loading model... (this may take a few seconds)")
+        _nawah_model = P.load(weights=str(model_path), device="cpu")
+        _nawah_tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        print("[Nawah] Model loaded successfully")
+        return _nawah_model, _nawah_tokenizer
+    except Exception as e:
+        print(f"[Nawah] Failed to load: {e}")
+        return None, None
+
 # --- إدارة الذاكرة ---
 def load_json(path, default):
     # إذا كان الملف هو الذاكرة، نقرأ من Supabase
@@ -306,31 +351,56 @@ def record_and_transcribe():
 # --- الاتصال بالسحابة (Groq) ---
 
 def record_and_transcribe_from_file(file_path):
-    """يستقبل مسار ملف صوتي ويفرغه إلى نص باستخدام Groq Whisper (سريع ودقيق)."""
+    """يستقبل مسار ملف صوتي ويفرغه إلى نص (Nawah محلياً أو Whisper سحابياً)."""
+    
+    if USE_NAWAH:
+        try:
+            model, tokenizer = _load_nawah()
+            if model is not None:
+                import soundfile as sf
+                import torch
+                import torchaudio
+                import parakeet_model as P
+                
+                wav, sample_rate = sf.read(str(file_path), dtype="float32")
+                if wav.ndim > 1:
+                    wav = wav.mean(axis=1)
+                if sample_rate != 16000:
+                    wav_t = torch.from_numpy(wav).unsqueeze(0)
+                    resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
+                    wav_t = resampler(wav_t)
+                    wav = wav_t.squeeze().numpy()
+                
+                text = P.transcribe(model, wav, tokenizer, device="cpu")
+                print(f"[Nawah] Transcribed: {text[:50]}")
+                return text.strip()
+            else:
+                pass  # NAWAH DISABLED - silent fallback
+        except Exception as e:
+            print(f"[Nawah error] {e}, falling back to Whisper")
+    
     try:
         import requests
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
         url = "https://api.groq.com/openai/v1/audio/transcriptions"
-        
+
         with open(file_path, "rb") as f:
             files = {"file": (Path(file_path).name, f)}
-            # إضافة Prompt أردني لتحسين الدقة
             _whisper_prompt = (
                 "هذا نص بلهجة أردنية. الكلمات الشائعة: "
                 "عون، بلال، حلقة وصل، ديوفان، أسبرين، زايلوفيل، "
                 "الضغط، القلب، البواسير، القهوة التركية، القهوة السادة، "
-                "يا صاحبي، يا غالي، يا رفيقي، كيفك، شو، منيح، تمام، "
-                "محمد أبو زيد، الضبع، مهنا، الأذكار، صلاة، قرآن."
+                "يا صاحبي، يا غالي، يا رفيقي، كيفك، شو، منيح، تمام."
             )
             data = {"model": "whisper-large-v3-turbo", "language": "ar", "response_format": "json", "prompt": _whisper_prompt}
             response = requests.post(url, headers=headers, files=files, data=data, timeout=20)
-            
+
         if response.status_code == 200:
             return response.json().get("text", "").strip()
         else:
             return ""
     except Exception as e:
-        print(f"[خطأ في الصوت: {e}]")
+        print(f"[STT error] {e}")
         return ""
 
 def call_gemini(messages, temperature=0.3, json_mode=False):
@@ -429,8 +499,31 @@ def build_system_prompt():
     # تحويل الذاكرة إلى نص مختصر جداً لتوفير التوكنز
     # نقرأ من الرام (سريع) بدل من Supabase (بطيء)
     facts = _memory_cache.get("facts", {})
-    short_memory = "\n".join([f"{k}: {v}" for k, v in facts.items()])
-    memory_str = short_memory if short_memory else "لا توجد معلومات"
+    # ترتيب حسب الفئة (إصلاح الاسترجاع)
+    CATEGORIES = {
+        "family": ["son", "children", "daughter", "wife", "mother", "father", "anniversary", "birthdate"],
+        "personal": ["name", "age", "location", "friend", "friends"],
+        "preferences": ["color", "coffee", "preferences", "medication", "medications", "heart", "blood_pressure", "hemorrhoids"],
+        "project": ["project", "halqat", "hala", "app_halqat", "app_target", "halaqat", "hala_wasel"],
+        "system": ["system"],
+        "religious": ["adhkar", "mother_name"],
+    }
+    # حذف المتعارض (نحتفظ بـ children و birthdate)
+    facts_clean = {k: v for k, v in facts.items() if k not in ["fact_son_name", "fact_son"]}
+    # تجميع حسب الفئة
+    grouped = {}
+    for key, val in facts_clean.items():
+        cat = "other"
+        for c, keywords in CATEGORIES.items():
+            if any(kw in key.lower() for kw in keywords):
+                cat = c
+                break
+        grouped.setdefault(cat, []).append(f"- {key.replace(chr(102)+chr(97)+chr(99)+chr(116)+chr(95), chr(39)+chr(39))}: {val}")
+    memory_str = ""
+    for cat_name, items in grouped.items():
+        memory_str += f"\n[{cat_name}]\n" + "\n".join(items) + "\n"
+    if not memory_str:
+        memory_str = "لا توجد معلومات"
     rules_str = json.dumps(rules, ensure_ascii=False)
     return f"""أنت "عون"، رفيق بلال الشخصي ومساعده. تتحدث بأسلوب إنساني، دافئ، وعفوي جداً (لهجة أردنية خفيفة). إذا سُئلت "من أنت؟" أجب حرفياً: "أنا عون، رفيقك الشخصي ومساعدك." ولا تضف أي كلمة أخرى.
 قواعدك الصارمة:
@@ -481,10 +574,18 @@ def _clean_fact_text(fact):
     return fact.strip()
 
 
+def log_correction(user_text, correction_type, fact_key, old_value, new_value):
+    try:
+        supabase.table("awn_corrections").insert({"user_text": (user_text or "")[:500], "correction_type": correction_type, "fact_key": fact_key or "", "old_value": old_value or "", "new_value": new_value or "", "status": "active", "source": "smart_extract"}).execute()
+    except Exception as e:
+        print(f"[Correction Log Error] {e}")
+
+
 def smart_extract(user_text, ai_reply):
+    print(f"[DEBUG] smart_extract called: {user_text[:50]}")
     # فلتر: فقط نستخرج إذا فيه إشارة تصحيح أو طلب تذكر صريح
-    correction_cues = ["لا يا", "غلط", "مش هيك", "الصحيح", "مو صح", "خطأ", "تصحيح", "بدل", "بالعكس"]
-    remember_cues = ["احفظ", "تذكر", "سجل", "خلي بالك"]
+    correction_cues = ["لا يا", "غلط", "مش هيك", "الصحيح", "مو صح", "خطأ", "تصحيح", "بدل", "بالعكس", "مش", "ليس", "عدل", "صحح", "غلطة", "خطا", "بدلها", "من الان", "المرة الجاية"]
+    remember_cues = ["احفظ", "تذكر", "سجل", "خلي بالك", "احفظها", "احفظه", "سجلها", "سجله", "خليها", "خليه", "خلي بالك"]
     has_correction = any(c in user_text for c in correction_cues)
     has_remember = any(c in user_text for c in remember_cues)
     
@@ -511,7 +612,7 @@ def smart_extract(user_text, ai_reply):
         res = res.replace("```json", "").replace("```", "").strip()
         data = json.loads(res)
         
-        if data.get("fact"):
+        if data.get("fact") and not data.get("rule"):
             _raw_topic = str(data.get("topic") or "").strip()
             if _raw_topic.lower() in ("", "null", "none"):
                 _raw_topic = ""
@@ -531,10 +632,11 @@ def smart_extract(user_text, ai_reply):
                     existing = str(existing_val).strip()
                     words_new = set(new_fact.lower().split())
                     words_old = set(existing.lower().split())
-                    if len(words_new & words_old) / max(len(words_new), 1) > 0.8:
+                    if len(words_new & words_old) / max(len(words_new), 1) > 0.5:
                         # تحديث المعلومة القديمة
                         memory["facts"][existing_key] = new_fact
                         save_json(MEMORY_FILE, memory)
+                        log_correction(user_text, "fact_update", existing_key, existing_val, new_fact)
                         is_duplicate = True
                         break
                 
@@ -542,6 +644,7 @@ def smart_extract(user_text, ai_reply):
                     key = f"fact_{topic}"
                     memory["facts"][key] = new_fact
                     save_json(MEMORY_FILE, memory)
+                    log_correction(user_text, "fact_add", key, "", new_fact)
             # print(f" [تم الحفظ في الخلفية: {data['fact']}]")
             
         if data.get("rule"):
@@ -555,11 +658,13 @@ def smart_extract(user_text, ai_reply):
                     # تحديث القاعدة القديمة
                     rules["rules"][i] = new_rule
                     save_json(RULES_FILE, rules)
+                    log_correction(user_text, "rule_update", "", existing_rule, new_rule)
                     is_duplicate = True
                     break
             if not is_duplicate:
                 rules["rules"].append(new_rule)
                 save_json(RULES_FILE, rules)
+                log_correction(user_text, "rule_add", "", "", new_rule)
     except Exception:
         pass # نتجاهل أخطاء الخلفية بصمت لعدم إزعاج المستخدم
 

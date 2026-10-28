@@ -1,39 +1,47 @@
-# Secrets
-.env
-.env.*
-
-# Memory & User Data
-memory_groq.json
-memory_groq.json.*
-rules_groq.json
-rules_groq.json.*
-ring_memory.json
-
-# Auth & Recovery
-auth_config.json
-RECOVERY_KEY.txt
-
-# SSL Certificates
-*.pem
-*.pem.backup
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-
-# Voice files
-.voice_*.mp3
-*.wav
-
-# Backups
-*.backup
-*_backup/
-
-# OS
-Thumbs.db
-.DS_Store
-
-# Logs
-*.log
-awn_diagnostics.log
+*.mp3  
+models/  
+piper_voices/  
+backups/  
+tmp/  
+*.STABLE*  
+*.backup*  
+*.broken  
+*golden*  
+*numbered*  
+hf_token.txt  
+.awn_wait*  
+.dash_voice*  
+__pycache__/  
+*.pyc 
+.env  
+*.pem  
+RECOVERY_KEY.txt  
+*.wav  
+*.log  
+*.py.*  
+web_app_v1_backup/  
+.gradio/  
+*.tmp 
+memory_groq.json  
+rules_groq.json  
+ring_memory.json  
+memory.json  
+rules_memory.json  
+awn_ui_before*  
+fix_*  
+inject_*  
+download_*  
+test_*  
+*hugging*  
+awn_dashboard.py  
+awn_voice_app.py  
+awn_ui.py  
+main_candidate*  
+main.py  
+python  
+awn_json_patch_test.py  
+awn_text_patch_independent_test.py  
+record_test.py  
+swap_buttons.py  
+proposal_sample.py  
+transfer_events.py 
