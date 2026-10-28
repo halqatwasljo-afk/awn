@@ -354,3 +354,10 @@ async function sendAudio(blob) {
         setStatus('❌ خطأ في تحويل الصوت');
     }
 }
+
+// Register Service Worker for PWA
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/static/service-worker.js")
+    .then(reg => console.log("SW Registered", reg))
+    .catch(err => console.error("SW Error", err));
+}
