@@ -649,7 +649,8 @@ def smart_extract(user_text, ai_reply):
                     log_correction(user_text, "fact_add", key, "", new_fact)
             # print(f" [تم الحفظ في الخلفية: {data['fact']}]")
             
-        if data.get("rule"):
+        _rule_gate = any(g in (user_text or "") for g in ["احفظ هذه القاعدة جيدا", "احفظ هذه القاعدة جيداً"])
+        if data.get("rule") and _rule_gate:
             new_rule = data["rule"].strip()
             is_duplicate = False
             # فحص القواعد القديمة للتشابه
@@ -732,7 +733,7 @@ def _list_decisions(memory):
 def _update_rules_from_message(text):
     """تكتشف التلقين الفوري وتحفظه."""
     n = text.strip()
-    cues = ["تذكر قاعدة", "تذكر قاعده", "من الآن فصاعدا", "من الان فصاعدا"]
+    cues = ["تذكر قاعدة", "تذكر قاعده", "من الآن فصاعدا", "من الان فصاعدا", "احفظ هذه القاعدة جيدا", "احفظ هذه القاعدة جيداً"]
     if any(c in n for c in cues):
         parts = n.split(":", 1)
         if len(parts) > 1:
