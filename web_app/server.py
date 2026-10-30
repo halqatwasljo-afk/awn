@@ -238,6 +238,8 @@ async def api_chat(data: dict):
         
         _msg_lower = message.lower()
         _read_reply = None
+        
+        # الكلمات المفتاحية للقراءة
         if any(k in _msg_lower for k in ["اقرا الملف", "اقرأ الملف", "read file", "افحص الملف"]):
             import re as _re
             _fname_match = _re.search(r"(awn_groq\.py|server\.py|app\.js|service-worker\.js)", message)
@@ -250,14 +252,19 @@ async def api_chat(data: dict):
                 elif _target == "service-worker.js":
                     _target = "web_app/static/service-worker.js"
                 _read_reply = awn.read_code_safely(_target)[:500]
+                
         if any(k in _msg_lower for k in ["تقرير شامل", "تقرير النظام", "system summary", "حالة النظام", "ملخص الذاكرة"]):
             _read_reply = awn.read_system_state("summary")
+            
         elif any(k in _msg_lower for k in ["الصندوق الاسود", "الصندوق الأسود", "اخر التصحيحات", "black box"]):
             _read_reply = awn.read_system_state("corrections", limit=20)
+            
         elif any(k in _msg_lower for k in ["كل الذاكرة", "مفاتيح الذاكرة", "memory keys"]):
             _read_reply = awn.read_system_state("memory")
+            
         elif any(k in _msg_lower for k in ["كل القواعد", "قائمة القواعد", "rules list"]):
             _read_reply = awn.read_system_state("rules")
+
         if _read_reply is not None:
             return JSONResponse({"success": True, "response": _read_reply, "audio": None})
 
