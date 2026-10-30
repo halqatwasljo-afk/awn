@@ -266,7 +266,7 @@ async def api_chat(data: dict):
             _read_reply = awn.read_system_state("rules")
 
         if _read_reply is not None:
-            return JSONResponse({"success": True, "response": _read_reply, "audio": None})
+            return JSONResponse({"success": True, "reply": _read_reply})
 
         messages = [{"role": "system", "content": awn.build_system_prompt()}]
         for msg in history:
