@@ -598,6 +598,10 @@ def smart_extract(user_text, ai_reply):
             res = call_groq([{"role": "user", "content": prompt}], temperature=0.0, json_mode=True)
             res = res.replace("```json", "").replace("```", "").strip()
             data = json.loads(res)
+            if isinstance(data, list):
+                data = data[0] if data and isinstance(data[0], dict) else {}
+            if not isinstance(data, dict):
+                data = {}
             if not data.get("fact") and not data.get("rule"):
                 log_correction(user_text, "ignored_by_ai", "", "", "AI decided nothing to save")
         except Exception as e:
