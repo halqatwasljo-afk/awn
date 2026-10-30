@@ -749,6 +749,95 @@ def _update_rules_from_message(text):
 
 
 
+def read_code_safely(file_name: str, max_lines: int = 10000) -> str:
+    """قراءة ملف كود بأمان (بدون تنفيذ). للأغراض التحليلية فقط."""
+    allowed = {"awn_groq.py", "web_app/server.py", "web_app/static/app.js", "web_app/static/service-worker.js"}
+    base = str(file_name).strip()
+    if base not in allowed:
+        return f"[READ_ERROR] الملف غير مسموح به: {base}. الملفات المسموحة: {', '.join(allowed)}"
+    try:
+        import os as _os
+        if _os.path.basename(base) == base:
+            full_path = APP_DIR / base
+        else:
+            full_path = Path(base)
+        if not full_path.exists():
+            return f"[READ_ERROR] الملف غير موجود: {full_path}"
+        with open(full_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+        return "".join(lines)
+    except Exception as e:
+        return f"[READ_ERROR] {e}"
+
+
+def read_system_state(source: str = "summary", limit: int = 20) -> str:
+    """قراءة حالة النظام من Supabase (قراءة فقط)."""
+    src = str(source).strip().lower()
+    try:
+        if src == "corrections":
+            r = supabase.table("awn_corrections").select("correction_type,fact_key,old_value,new_value,user_text,created_at").order("created_at", desc=True).limit(limit).execute()
+            if not r.data:
+                return "[لا توجد سجلات في الصندوق الأسود]"
+            lines = []
+            for i, row in enumerate(r.data, 1):
+                lines.append(f"--- {i} ---")
+                lines.append(f"النوع: {row.get('correction_type','')}")
+                lines.append(f"المفتاح: {row.get('fact_key','')}")
+                lines.append(f"القديم: {str(row.get('old_value',''))[:100]}")
+                lines.append(f"الجديد: {str(row.get('new_value',''))[:100]}")
+                lines.append(f"نص المستخدم: {str(row.get('user_text',''))[:100]}")
+                lines.append("")
+            return chr(10).join(lines)
+        if src == "memory":
+            r = supabase.table("awn_memory").select("key,value").execute()
+            if not r.data:
+                return "[الذاكرة فارغة]"
+            lines = [f"[إجمالي المفاتيح: {len(r.data)}]"]
+            for row in r.data:
+                lines.append(f"{row['key']}: {str(row['value'])[:150]}")
+            return chr(10).join(lines)
+        if src == "rules":
+            rl = rules.get("rules", [])
+            if not rl:
+                return "[لا توجد قواعد]"
+            lines = [f"[إجمالي القواعد: {len(rl)}]"]
+            for i, rule in enumerate(rl, 1):
+                lines.append(f"{i}. {rule}")
+            return chr(10).join(lines)
+        if src == "summary":
+            r_all = supabase.table("awn_memory").select("key").execute()
+            total_keys = len(r_all.data) if r_all.data else 0
+            fact_keys = [row["key"] for row in (r_all.data or []) if row["key"].startswith("fact_")]
+            r_corr = supabase.table("awn_corrections").select("correction_type,created_at").order("created_at", desc=True).limit(10).execute()
+            corr_types = {}
+            for row in (r_corr.data or []):
+                t = row.get("correction_type", "unknown")
+                corr_types[t] = corr_types.get(t, 0) + 1
+            rules_count = len(rules.get("rules", []))
+            lines = ["=== تقرير حالة النظام ==="]
+            lines.append(f"إجمالي المفاتيح في الذاكرة: {total_keys}")
+            lines.append(f"مفاتيح Facts: {len(fact_keys)}")
+            lines.append(f"عدد القواعد: {rules_count}")
+            lines.append(f"عدد الأحداث: {len(_memory_cache.get('events', []))}")
+            lines.append(f"عدد القرارات: {len(_memory_cache.get('decisions', []))}")
+            lines.append("")
+            lines.append("=== آخر 10 تصحيحات (إحصائية) ===")
+            for t, c in sorted(corr_types.items(), key=lambda x: -x[1]):
+                lines.append(f"{t}: {c}")
+            suspicious = [k for k in fact_keys if k.startswith("fact_user_")]
+            if suspicious:
+                lines.append("")
+                lines.append(f"[تحذير] مفاتيح مشبوهة (fact_user_*): {len(suspicious)}")
+                for k in suspicious[:5]:
+                    lines.append(f"  - {k}")
+            return chr(10).join(lines)
+        return f"[READ_ERROR] مصدر غير معروف: {src}. المصادر المسموحة: corrections, memory, rules, summary"
+    except Exception as e:
+        return f"[READ_ERROR] {e}"
+
+
 def normalize_arabic(text: str) -> str:
     text = text.lower().strip()
     text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ى", "ي").replace("ة", "ه")
