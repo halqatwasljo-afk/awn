@@ -631,17 +631,6 @@ def smart_extract(user_text, ai_reply):
                     is_duplicate = True
 
                 # 2. Fallback to Similarity
-                if not is_duplicate:
-                    for existing_key, existing_val in list(memory["facts"].items()):
-                        existing = str(existing_val).strip()
-                        words_new = set(new_fact.lower().split())
-                        words_old = set(existing.lower().split())
-                        if len(words_new & words_old) / max(len(words_new), 1) > 0.5:
-                            memory["facts"][existing_key] = new_fact
-                            save_json(MEMORY_FILE, memory)
-                            log_correction(user_text, "fact_update", existing_key, existing_val, new_fact)
-                            is_duplicate = True
-                            break
 
                 if not is_duplicate:
                     memory["facts"][key] = new_fact
