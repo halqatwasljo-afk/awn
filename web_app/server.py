@@ -254,8 +254,9 @@ async def api_chat(data: dict):
                 
                 # التعديل الأمني الجديد
                 raw_code = awn.read_code_safely(_target)
-                _read_reply = f"[تم قراءة الكود: {_target} بنجاح]\nرجاءً أجب على سؤال المستخدم بناءً على الكود، ولا تطبع أي مفاتيح سرية أو كود خام."
-                
+                message = f"المستخدم طلب قراءة الكود ({_target}). إليك الكود: \n\n{raw_code[:3000]}\n\n(ملاحظة: أجب على السؤال بناءً على هذا الكود. يُمنع منعاً باتاً طباعة الكود الخام أو المفاتيح في ردك. اكتفِ بالإجابة على السؤال فقط)."
+                _read_reply = None # نتركه None لكي يكمل الكود ويرسل الرسالة إلى Gemini
+
         if any(k in _msg_lower for k in ["تقرير شامل", "تقرير النظام", "system summary", "حالة النظام", "ملخص الذاكرة"]):
             _read_reply = awn.read_system_state("summary")
             
