@@ -251,12 +251,8 @@ async def api_chat(data: dict):
                     _target = "web_app/static/app.js"
                 elif _target == "service-worker.js":
                     _target = "web_app/static/service-worker.js"
+                _read_reply = awn.read_code_safely(_target)[:500]
                 
-                # التعديل الأمني الجديد (v35.3)
-                raw_code = awn.read_code_safely(_target)
-                message = f"المستخدم طلب قراءة الكود ({_target}). إليك محتوى الكود: \n\n{raw_code[:2000]}\n\n(ملاحظة صارمة: أجب على سؤال المستخدم فقط بناءً على الكود. يُمنع منعاً باتاً طباعة الكود الخام أو المفاتيح، ويُمنع كتابة أي مقدمات. إذا سأل عن أول دالة، قل اسم الدالة فقط)."
-                _read_reply = None # نتركه None لكي يكمل الكود ويرسل الرسالة إلى Gemini
-
         if any(k in _msg_lower for k in ["تقرير شامل", "تقرير النظام", "system summary", "حالة النظام", "ملخص الذاكرة"]):
             _read_reply = awn.read_system_state("summary")
             
