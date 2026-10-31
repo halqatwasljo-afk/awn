@@ -251,7 +251,10 @@ async def api_chat(data: dict):
                     _target = "web_app/static/app.js"
                 elif _target == "service-worker.js":
                     _target = "web_app/static/service-worker.js"
-                _read_reply = awn.read_code_safely(_target)[:500]
+                
+                # التعديل الأمني الجديد
+                raw_code = awn.read_code_safely(_target)
+                _read_reply = f"[تم قراءة الكود: {_target} بنجاح]\nرجاءً أجب على سؤال المستخدم بناءً على الكود، ولا تطبع أي مفاتيح سرية أو كود خام."
                 
         if any(k in _msg_lower for k in ["تقرير شامل", "تقرير النظام", "system summary", "حالة النظام", "ملخص الذاكرة"]):
             _read_reply = awn.read_system_state("summary")
